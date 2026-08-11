@@ -3,7 +3,10 @@ package com.scanner;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.Socket;
@@ -74,9 +77,9 @@ public final class MinecraftPinger {
             int packetId = readVarInt(in);
             if (packetId != 0) return false;
 
-            // 3. 【关键修复】读取 JSON 字符串长度（VarInt）
+            // 3. 读取 JSON 字符串长度（VarInt）
             int jsonLength = readVarInt(in);
-            if (jsonLength < 2 || jsonLength > 65535) return false;  // 合理长度范围
+            if (jsonLength < 2 || jsonLength >131072) return false;
 
             // 4. 按长度读取 JSON 字符串
             byte[] jsonBytes = new byte[jsonLength];

@@ -46,16 +46,20 @@
 
 ## ✦ Architecture Overview / 架构概览
 
-
 | Component / 组件 | Responsibility (EN) / 职责（英文） | Responsibility (CN) / 职责（中文） |
 |------------------|-----------------------------------|-----------------------------------|
 | **ScanOrchestrator**<br>扫描调度器 | Core scheduler that manages adaptive concurrency and task lifecycles, orchestrates the entire scanning process. | 核心调度器，管理自适应并发与任务生命周期，协调整个扫描流程。 |
 | **ScanWorker**<br>工作线程 | A virtual thread per IP probe; performs port checking and Minecraft ping, either through a proxy or directly. | 每个虚拟线程执行一个 IP 的探测任务，进行端口检查与 Minecraft 握手，支持代理或直连。 |
 | **ProxyManager**<br>代理管理器 | Maintains the proxy pool, auto‑crawls new proxies via fission, and pulls pre‑validated lists from GitHub. | 维护代理池，通过裂变自动爬取新代理，并从 GitHub 拉取预验证列表。 |
-| **ResultConsumer**<br>结果消费者 | Consumes scan results from the queue, writes them to the output file, and performs periodic IP‑based deduplication. | 从队列中消费扫描结果，写入输出文件，并定期执行基于 IP 的去重。 |
+| **ResultConsumer**<br>结果消费者 | Consumes scan results from the queue, writes them to the output file, and performs periodic IP‑based deduplication with read‑write lock protection. | 从队列中消费扫描结果，写入输出文件，并定期执行基于 IP 的去重（使用读写锁保护）。 |
 | **NetworkMonitor**<br>网络监控器 | Tracks errors and timeouts within a sliding time window, providing real‑time feedback for proxy pool health assessment. | 统计滑动时间窗口内的错误与超时，为代理池健康提供实时反馈。 |
 | **AdaptiveSemaphore**<br>自适应信号量 | A dynamically adjustable semaphore that controls the number of concurrent tasks, enabling smooth concurrency changes. | 动态可调的信号量，控制并发任务数，支持并发量的平滑调整。 |
 | **Scheduled Crawler**<br>定时爬虫 | Periodic tasks executed by the scheduler to refill the proxy pool, fetch GitHub proxies, and trigger fission when needed. | 由调度器执行的定时任务，用于补货、拉取 GitHub 代理以及按需触发裂变。 |
+| **IpGenerator**<br>IP 生成器 | Generates random public IP addresses efficiently using integer arithmetic, bypassing private and reserved ranges. | 使用整数运算高效生成随机公网 IP 地址，自动规避私有与保留地址段。 |
+| **MinecraftPinger**<br>Minecraft 探针 | Performs the Minecraft server handshake across multiple protocol versions (1.20.1, 1.12.2, 1.8.9) to verify server presence. | 跨多个协议版本（1.20.1、1.12.2、1.8.9）执行 Minecraft 服务器握手，验证服务器存在性。 |
+| **PortChecker**<br>端口检查器 | Tests TCP port availability using a standard socket connection, recording timeouts and network errors for monitoring. | 使用标准 Socket 连接测试 TCP 端口可用性，记录超时与网络错误以供监控。 |
+| **Config**<br>配置对象 | Holds all configurable parameters including scanning, adaptive tuning, and deduplication settings, serialized to/from JSON. | 持有所有可配置参数，包括扫描、自适应调优与去重设置，支持 JSON 序列化与反序列化。 |
+| **Main**<br>主程序 | Entry point that orchestrates configuration loading, interactive setup, and lifecycle management of all components. | 程序入口，负责配置加载、交互式参数设置以及所有组件的生命周期管理。 |
 
 ## ✦ Configuration Details / 配置详解
 

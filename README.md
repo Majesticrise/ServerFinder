@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="https://img.shields.io/badge/Java-21+-blue.svg" alt="Java">
+  <img src="https://img.shields.io/badge/License-LGPL--2.1-green.svg" alt="License">
+  <img src="https://img.shields.io/badge/Minecraft-1.8--1.20-orange.svg" alt="Minecraft">
+  <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/CI-GitHub%20Actions-brightgreen" alt="CI">
+</p>
+
 ## ✦ Title & Introduction / 标题与引言
 
 | English / 英文 | 中文 / Chinese |
@@ -5,6 +13,23 @@
 | **Minecraft Server Scanner · An Elegant Distributed Probing Engine** | **Minecraft 服务器扫描器 · 优雅的分布式探测引擎** |
 | A high‑performance, self‑adaptive scanner for discovering Minecraft Java Edition servers. | 一款高性能、自适应并发的 Minecraft Java 版服务器发现工具。 |
 | Supports SOCKS5 proxy pools, intelligent concurrency tuning, result deduplication, and persistent storage – designed for large‑scale public Internet reconnaissance. | 支持 SOCKS5 代理池、智能调速、结果去重与持久化，专为大规模公网探测而设计。 |
+
+---
+## 📑 Table of Contents / 目录
+
+- [Features / 功能](#-features--功能)
+- [Architecture Overview / 架构概览](#-architecture-overview--架构概览)
+- [Quick Start / 快速开始](#-quick-start--快速开始)
+- [Configuration Details / 配置详解](#-configuration-details--配置详解)
+- [Proxy Pool Mechanics / 代理池机制](#-proxy-pool-mechanics--代理池机制)
+- [Adaptive Concurrency Algorithm / 自适应并发算法](#-adaptive-concurrency-algorithm--自适应并发算法)
+- [Output & Deduplication / 输出与去重](#-output--deduplication--输出与去重)
+- [Important Notes / 注意事项](#-important-notes--注意事项)
+- [Customisation & Extensions / 扩展与定制](#-customisation--extensions--扩展与定制)
+- [CI/CD Pipeline](#-cicd-pipeline--持续集成与交付)
+- [License / 许可](#-license--许可)
+
+---
 
 ## ✦ Features / 功能
 
@@ -20,6 +45,7 @@
 ---
 
 ## ✦ Architecture Overview / 架构概览
+
 
 | Component / 组件 | Responsibility (EN) / 职责（英文） | Responsibility (CN) / 职责（中文） |
 |------------------|-----------------------------------|-----------------------------------|
@@ -103,17 +129,34 @@ The evaluation metric is `throughput × discovery rate`; if no servers are found
 
 ## ✦ Important Notes / 注意事项
 
-- **Legal Use / 合法使用**: Only scan IP ranges you own or have explicit permission to probe. Unauthorised scanning may violate local laws and terms of service.  
-  请仅扫描您拥有授权或属于公开范围的 IP 段。未经许可的扫描可能违反当地法律。
+> [!CAUTION]
+> **Legal Use / 合法使用**：Only scan IP ranges you own or have explicit permission to probe. Unauthorised scanning may violate local laws and terms of service.  
+> **请仅扫描您拥有授权或属于公开范围的 IP 段。未经许可的扫描可能违反当地法律。**
 
-- **Network Load / 网络负载**: High concurrency may trigger rate‑limiting on the target network or proxy providers; adjust concurrency and timeout accordingly.  
-  高并发可能触发目标网络或代理商的流量限制，建议合理设置并发与超时。
+> [!WARNING]
+> **Network Load / 网络负载**：High concurrency may trigger rate‑limiting on the target network or proxy providers; adjust concurrency and timeout accordingly.  
+> **高并发可能触发目标网络或代理商的流量限制，建议合理设置并发与超时。**
 
-- **Proxy Quality / 代理质量**: Free proxy pools vary in stability and anonymity; for production use, consider private proxy services.  
-  免费代理池的稳定性和匿名性参差不齐，生产环境建议使用私有代理服务。
+> [!NOTE]
+> **Proxy Quality / 代理质量**：Free proxy pools vary in stability and anonymity; for production use, consider private proxy services.  
+> **免费代理池的稳定性和匿名性参差不齐，生产环境建议使用私有代理服务。**
 
-- **Memory / 内存占用**: Both queues and proxy pool are capped, but significantly increasing concurrency may still consume more memory – tune `maxConcurrency` based on your hardware.  
-  队列与代理池均设有上限，但大幅调高并发时仍可能消耗较多内存，请根据机器配置调整 `maxConcurrency` 等参数。
+> [!NOTE]
+> **Memory / 内存占用**：Both queues and proxy pool are capped, but significantly increasing concurrency may still consume more memory – tune `maxConcurrency` based on your hardware.  
+> **队列与代理池均设有上限，但大幅调高并发时仍可能消耗较多内存，请根据机器配置调整 `maxConcurrency` 等参数。**
+
+---
+
+## ✦ CI/CD Pipeline / 持续集成与交付
+
+This project leverages **GitHub Actions** for automated builds, testing, and releases.  
+本项目使用 **GitHub Actions** 实现自动化构建、测试与发布。
+
+| Workflow / 工作流 | Trigger / 触发条件 | Purpose / 目的 |
+|-------------------|-------------------|----------------|
+| **PR Validation** | Pull Request to `main` | Compile, test, and validate code quality / 编译、测试与代码质量验证 |
+| **Release Build** | Push to `main` or tag push | Build JAR and attach to release / 构建 JAR 并关联至 Release |
+
 
 ## ✦ Customisation & Extensions / 扩展与定制
 

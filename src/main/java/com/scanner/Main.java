@@ -19,7 +19,6 @@ public class Main {
         System.out.println("==============================");
         System.out.println();
 
-        // ---- 加载配置 ----
         Config config = loadConfig();
 
         boolean isAdmin = isAdmin();
@@ -29,7 +28,6 @@ public class Main {
             System.out.println("当前运行：非管理员模式，仅支持 TCP Connect 扫描。");
         }
 
-        // ---- 交互式参数（覆盖配置文件中的值） ----
         System.out.println("请选择扫描模式：");
         System.out.println("1) 普通扫描（指定总数）");
         System.out.println("2) 持续扫描（无限循环，按 Ctrl+C 停止）");
@@ -65,10 +63,8 @@ public class Main {
 
         config.useProxy = promptYesNo("是否启用SOCKS5代理池（隐藏真实IP，避免封禁）", false);
 
-        // ---- 保存用户交互后的配置（覆盖文件） ----
         saveConfig(config);
 
-        // ---- 打印参数 ----
         System.out.println("\n扫描参数：");
         System.out.println("  模式: " + (config.total == -1 ? "持续扫描" : "普通扫描"));
         if (config.total != -1) System.out.println("  扫描总数: " + config.total);
@@ -87,11 +83,9 @@ public class Main {
         }
         System.out.println();
 
-        // ---- 创建 orchestrator ----
         BlockingQueue<ScanResult> resultQueue = new LinkedBlockingQueue<>(10240);
         AtomicBoolean stopFlag = new AtomicBoolean(false);
 
-        // 提供缓存保存回调
         Consumer<Integer> cacheSaver = (best) -> {
             config.cachedBestConcurrency = best;
             saveConfig(config);
@@ -99,27 +93,27 @@ public class Main {
 
         ScanOrchestrator orchestrator = new ScanOrchestrator(config, resultQueue, cacheSaver);
 
-        // ---- 根据代理启用状态启动管理器 ----
         if (config.useProxy) {
             ProxyManager.getInstance().start(orchestrator::getActiveTasks);
         } else {
             ProxyManager.getInstance().shutdown();
         }
 
-        // ---- 创建消费者并传入 orchestrator ----
         ResultConsumer consumer = new ResultConsumer(
                 config,
                 resultQueue,
                 stopFlag,
                 orchestrator::getActiveTasks,
                 orchestrator::getProxyTaskCount,
-                orchestrator  // 传入引用
+                orchestrator
         );
 
-        // 注册 Ctrl+C 钩子
+        // 注册关闭钩子，包含 NetworkMonitor 关闭
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             stopFlag.set(true);
             System.out.println("\n正在停止扫描...");
+            NetworkMonitor.getInstance().shutdown();
+            ProxyManager.getInstance().shutdown();
         }));
 
         Thread consumerThread = new Thread(consumer);
@@ -134,6 +128,8 @@ public class Main {
             try {
                 consumerThread.join();
             } catch (InterruptedException ignored) {}
+            // 正常退出时也关闭资源
+            NetworkMonitor.getInstance().shutdown();
             ProxyManager.getInstance().shutdown();
             saveConfig(config);
         }
@@ -165,7 +161,7 @@ public class Main {
             }
         }
 
-        // 兼容旧版缓存文件（如果存在且配置中未设置）
+        // 兼容旧版缓存文件
         if (config.cachedBestConcurrency <= 0) {
             File oldCache = new File("best_concurrency.txt");
             if (oldCache.exists()) {

@@ -3,9 +3,7 @@ package com.scanner;
 import com.sun.management.OperatingSystemMXBean;
 
 import java.lang.management.ManagementFactory;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,15 +18,12 @@ public class ScanOrchestrator {
     private final AtomicInteger proxyTaskCount = new AtomicInteger(0);
     private final Consumer<Integer> cacheSaver;
 
-    // ---- 统计 ----
     private final AtomicLong totalCompleted = new AtomicLong(0);
     private final AtomicLong totalFound = new AtomicLong(0);
 
-    // ---- 状态机 ----
     private enum Phase { EXPONENTIAL_DOWN, GOLDEN_SECTION, LOCKED }
     private volatile Phase phase = Phase.EXPONENTIAL_DOWN;
 
-    // 指数下降阶段
     private int expCurrentConcurrency;
     private final double expFactor;
     private double bestMetric1 = -Double.MAX_VALUE;
@@ -36,7 +31,6 @@ public class ScanOrchestrator {
     private int bestConc1 = -1, bestConc2 = -1;
     private int expTestedCount = 0;
 
-    // 黄金分割阶段
     private double goldA, goldB;
     private double goldX1, goldX2;
     private double goldF1, goldF2;
@@ -45,9 +39,8 @@ public class ScanOrchestrator {
     private static final double GOLDEN_RATIO = 0.618033988749895;
     private static final int GOLDEN_MAX_ITER = 25;
 
-    // 通用
     private int bestConcurrency;
-    private double bestMetric = -1;
+    private double bestMetric = -Double.MAX_VALUE;
     private Thread monitorThread = null;
 
     private final int absoluteMin;
@@ -56,8 +49,6 @@ public class ScanOrchestrator {
     private static final double NOISE_THRESHOLD = 0.10;
     private static final double STABILITY_THRESHOLD = 0.05;
 
-
-    // ---------- 公开方法 ----------
     public int getProxyTaskCount() {
         return proxyTaskCount.get();
     }
@@ -66,7 +57,6 @@ public class ScanOrchestrator {
         return activeTasks.get();
     }
 
-    // ---------- 构造器 ----------
     public ScanOrchestrator(Config config, BlockingQueue<ScanResult> resultQueue, Consumer<Integer> cacheSaver) {
         this.config = config;
         this.resultQueue = resultQueue;
@@ -78,7 +68,6 @@ public class ScanOrchestrator {
         expFactor = config.expFactor;
     }
 
-    // ---------- 统计更新 ----------
     public void incrementCompleted() {
         totalCompleted.incrementAndGet();
     }
@@ -87,15 +76,105 @@ public class ScanOrchestrator {
         totalFound.incrementAndGet();
     }
 
-    // ---------- 启动 ----------
-    public void start() throws InterruptedException {
+    private boolean validateCache(int cachedConcurrency) {
+        System.out.println("[缓存] 开始健康检查，并发=" + cachedConcurrency + "，测试500个IP...");
+        int testCount = 500;
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        AtomicInteger errors = new AtomicInteger(0);
+        AtomicInteger attempts = new AtomicInteger(0);
+        CountDownLatch latch = new CountDownLatch(testCount);
+        AtomicBoolean testStop = new AtomicBoolean(false);
+
+        semaphore.setMaxPermits(cachedConcurrency);
+        long startTime = System.currentTimeMillis();
+        for (int i = 0; i < testCount; i++) {
+            try {
+                semaphore.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            executor.submit(() -> {
+                try {
+                    if (testStop.get()) return;
+                    attempts.incrementAndGet();
+                    String ip = IpGenerator.randomPublicIp();
+                    // 使用直连检测端口，记录超时或连接失败为错误
+                    boolean open = PortChecker.isPortOpen(ip, config.port, config.timeout, null);
+                    if (!open) {
+                        errors.incrementAndGet();
+                    }
+                } finally {
+                    semaphore.release();
+                    latch.countDown();
+                }
+            });
+        }
+
+        try {
+            latch.await(15, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        executor.shutdownNow();
+        long elapsed = System.currentTimeMillis() - startTime;
+        int totalAttempts = attempts.get();
+        if (totalAttempts == 0) {
+            System.out.println("[缓存] 测试未完成，视为无效");
+            return false;
+        }
+        double failRate = (double) errors.get() / totalAttempts;
+        double speed = totalAttempts / (elapsed / 1000.0);
+        System.out.printf("[缓存] 健康检查完成: 尝试%d, 错误%d, 失败率%.2f%%, 速度%.1f IP/s\n",
+                totalAttempts, errors.get(), failRate * 100, speed);
+        // 认为失败率低于25%且速度大于10 IP/s 为健康
+        return failRate < 0.25 && speed > 10;
+    }
+
+    public void start() throws InterruptedException {
+        if (config.cachedBestConcurrency > 0) {
+            if (!validateCache(config.cachedBestConcurrency)) {
+                System.out.println("[缓存] 缓存值已失效，将进行指数下降粗扫。");
+                config.cachedBestConcurrency = 0;
+                if (cacheSaver != null) cacheSaver.accept(0);
+                phase = Phase.EXPONENTIAL_DOWN;
+                expCurrentConcurrency = absoluteMax;
+                bestMetric1 = bestMetric2 = -Double.MAX_VALUE;
+                bestConc1 = bestConc2 = -1;
+                expTestedCount = 0;
+            } else {
+                System.out.println("[缓存] 缓存值有效，直接进入黄金分割搜索。");
+                bestConcurrency = config.cachedBestConcurrency;
+                bestMetric = -Double.MAX_VALUE;
+                goldA = Math.max(absoluteMin, config.cachedBestConcurrency * 0.8);
+                goldB = Math.min(absoluteMax, config.cachedBestConcurrency * 1.2);
+                if (goldB - goldA < 50) {
+                    goldA = Math.max(absoluteMin, config.cachedBestConcurrency - 100);
+                    goldB = Math.min(absoluteMax, config.cachedBestConcurrency + 100);
+                }
+                phase = Phase.GOLDEN_SECTION;
+                goldNeedTestX1 = true;
+                goldNeedTestX2 = true;
+                goldIter = 0;
+                goldX1 = goldB - GOLDEN_RATIO * (goldB - goldA);
+                goldX2 = goldA + GOLDEN_RATIO * (goldB - goldA);
+            }
+        } else {
+            phase = Phase.EXPONENTIAL_DOWN;
+            expCurrentConcurrency = absoluteMax;
+            bestMetric1 = bestMetric2 = -Double.MAX_VALUE;
+            bestConc1 = bestConc2 = -1;
+            expTestedCount = 0;
+            System.out.println("[自适应] 开始指数下降粗扫，初始并发 " + expCurrentConcurrency);
+        }
 
         if (config.adaptive) {
             monitorThread = new Thread(this::adaptiveMonitor);
             monitorThread.setDaemon(true);
             monitorThread.start();
         }
+
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
         Thread producer = new Thread(() -> {
             int count = 0;
@@ -148,7 +227,6 @@ public class ScanOrchestrator {
         producer.join();
     }
 
-    // ---------- 自适应监控主循环 ----------
     private void adaptiveMonitor() {
         OperatingSystemMXBean osBean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
         try {
@@ -160,7 +238,7 @@ public class ScanOrchestrator {
         int cached = config.cachedBestConcurrency;
         if (cached > 0) {
             bestConcurrency = cached;
-            bestMetric = -1;
+            bestMetric = -Double.MAX_VALUE;
             goldA = Math.max(absoluteMin, cached * 0.8);
             goldB = Math.min(absoluteMax, cached * 1.2);
             if (goldB - goldA < 50) {
@@ -174,7 +252,7 @@ public class ScanOrchestrator {
             System.out.println("[自适应] 使用缓存值 " + cached + "，直接进入黄金分割搜索，区间 [" + (int)goldA + "," + (int)goldB + "]");
         } else {
             expCurrentConcurrency = absoluteMax;
-            bestMetric1 = bestMetric2 = -1;
+            bestMetric1 = bestMetric2 = -Double.MAX_VALUE;
             bestConc1 = bestConc2 = -1;
             expTestedCount = 0;
             phase = Phase.EXPONENTIAL_DOWN;
@@ -191,14 +269,11 @@ public class ScanOrchestrator {
                 double memUsage = (double) (osBean.getTotalMemorySize() - osBean.getFreeMemorySize())
                         / osBean.getTotalMemorySize();
                 if (memUsage > config.memoryEmergencyThreshold) {
-                    int emergencyMax = (int) (semaphore.getMaxPermits() * config.memoryDowngradeFactor);
-                    semaphore.setMaxPermits(Math.max(emergencyMax, absoluteMin));
-                    System.out.println("[紧急] 内存超过阈值，强制降速至 " + semaphore.getMaxPermits() + "，重启搜索");
-                    phase = Phase.EXPONENTIAL_DOWN;
-                    expCurrentConcurrency = absoluteMax;
-                    bestMetric1 = bestMetric2 = -1;
-                    bestConc1 = bestConc2 = -1;
-                    expTestedCount = 0;
+                    int currentMax = semaphore.getMaxPermits();
+                    int newMax = (int)(currentMax * config.memoryDowngradeFactor);
+                    newMax = Math.max(newMax, absoluteMin);
+                    semaphore.setMaxPermits(newMax);
+                    System.out.println("[紧急] 内存超限，临时降速至 " + newMax + " (原 " + currentMax + ")");
                     Thread.sleep(5000);
                     continue;
                 }
@@ -220,7 +295,6 @@ public class ScanOrchestrator {
         }
     }
 
-    // ---------- 指数下降粗扫 ----------
     private void processExponentialDown() throws InterruptedException {
         int concurrency = expCurrentConcurrency;
         semaphore.setMaxPermits(concurrency);
@@ -228,14 +302,18 @@ public class ScanOrchestrator {
         double metric = testConcurrencyWithEarlyStop(concurrency);
         System.out.println("[粗扫结果] 并发=" + concurrency + " 指标=" + String.format("%.4f", metric));
 
-        if (metric > bestMetric1) {
-            bestMetric2 = bestMetric1;
-            bestConc2 = bestConc1;
-            bestMetric1 = metric;
-            bestConc1 = concurrency;
-        } else if (metric > bestMetric2) {
-            bestMetric2 = metric;
-            bestConc2 = concurrency;
+        if (metric != Double.NEGATIVE_INFINITY) {
+            if (metric > bestMetric1) {
+                bestMetric2 = bestMetric1;
+                bestConc2 = bestConc1;
+                bestMetric1 = metric;
+                bestConc1 = concurrency;
+            } else if (metric > bestMetric2) {
+                bestMetric2 = metric;
+                bestConc2 = concurrency;
+            }
+        } else {
+            System.out.println("[粗扫] 并发 " + concurrency + " 无发现，忽略");
         }
 
         expTestedCount++;
@@ -251,9 +329,25 @@ public class ScanOrchestrator {
 
     private void finishExponentialDown() {
         if (bestConc1 == -1 || bestConc2 == -1) {
-            bestConcurrency = (absoluteMin + absoluteMax) / 2;
-            bestMetric = -1;
-            System.out.println("[粗扫] 有效点不足，使用中间并发 " + bestConcurrency + " 并进入验证");
+            // 如果只有一个有效点，则以其为中心
+            if (bestConc1 != -1) {
+                goldA = Math.max(absoluteMin, bestConc1 * 0.7);
+                goldB = Math.min(absoluteMax, bestConc1 * 1.3);
+                System.out.println("[粗扫] 仅一个有效点，以 " + bestConc1 + " 为中心形成区间 [" + (int)goldA + "," + (int)goldB + "]");
+                phase = Phase.GOLDEN_SECTION;
+                goldNeedTestX1 = true;
+                goldNeedTestX2 = true;
+                goldIter = 0;
+                bestMetric = bestMetric1;
+                bestConcurrency = bestConc1;
+                goldX1 = goldB - GOLDEN_RATIO * (goldB - goldA);
+                goldX2 = goldA + GOLDEN_RATIO * (goldB - goldA);
+                return;
+            }
+            // 完全无有效点，使用最低并发
+            bestConcurrency = absoluteMin;
+            bestMetric = -Double.MAX_VALUE;
+            System.out.println("[粗扫] 无有效点，使用最低并发 " + bestConcurrency + " 并进入锁定");
             phase = Phase.LOCKED;
             return;
         }
@@ -279,13 +373,12 @@ public class ScanOrchestrator {
         goldX2 = goldA + GOLDEN_RATIO * (goldB - goldA);
     }
 
-    // ---------- 黄金分割细扫 ----------
     private void processGoldenSection() throws InterruptedException {
         if (goldNeedTestX1) {
             goldF1 = testConcurrencyWithEarlyStop((int)goldX1);
             System.out.println("[黄金分割] 测试 x1=" + (int)goldX1 + " 指标=" + String.format("%.4f", goldF1));
             goldNeedTestX1 = false;
-            if (goldF1 > bestMetric) {
+            if (goldF1 > bestMetric && goldF1 != Double.NEGATIVE_INFINITY) {
                 bestMetric = goldF1;
                 bestConcurrency = (int)goldX1;
             }
@@ -295,7 +388,7 @@ public class ScanOrchestrator {
             goldF2 = testConcurrencyWithEarlyStop((int)goldX2);
             System.out.println("[黄金分割] 测试 x2=" + (int)goldX2 + " 指标=" + String.format("%.4f", goldF2));
             goldNeedTestX2 = false;
-            if (goldF2 > bestMetric) {
+            if (goldF2 > bestMetric && goldF2 != Double.NEGATIVE_INFINITY) {
                 bestMetric = goldF2;
                 bestConcurrency = (int)goldX2;
             }
@@ -312,8 +405,8 @@ public class ScanOrchestrator {
             f2 = (f2 + newF2) / 2;
             goldF1 = f1;
             goldF2 = f2;
-            if (f1 > bestMetric) { bestMetric = f1; bestConcurrency = (int)goldX1; }
-            if (f2 > bestMetric) { bestMetric = f2; bestConcurrency = (int)goldX2; }
+            if (f1 > bestMetric && f1 != Double.NEGATIVE_INFINITY) { bestMetric = f1; bestConcurrency = (int)goldX1; }
+            if (f2 > bestMetric && f2 != Double.NEGATIVE_INFINITY) { bestMetric = f2; bestConcurrency = (int)goldX2; }
         }
 
         if (f1 > f2) {
@@ -338,7 +431,7 @@ public class ScanOrchestrator {
         if (goldB - goldA < config.goldenTolerance || goldIter >= GOLDEN_MAX_ITER) {
             int finalBest = (int)((goldA + goldB) / 2);
             double midMetric = testConcurrencyWithEarlyStop(finalBest);
-            if (midMetric > bestMetric) {
+            if (midMetric > bestMetric && midMetric != Double.NEGATIVE_INFINITY) {
                 bestMetric = midMetric;
                 bestConcurrency = finalBest;
             }
@@ -347,7 +440,6 @@ public class ScanOrchestrator {
         }
     }
 
-    // ---------- 锁定与验证 ----------
     private void processLocked(OperatingSystemMXBean osBean) throws InterruptedException {
         semaphore.setMaxPermits(bestConcurrency);
         System.out.println("[锁定] 运行于最优并发 " + bestConcurrency + "，每 " + config.lockedCheckInterval + " 秒验证一次");
@@ -361,7 +453,7 @@ public class ScanOrchestrator {
                 System.out.println("[锁定] 最优并发可能改变，重启搜索");
                 phase = Phase.EXPONENTIAL_DOWN;
                 expCurrentConcurrency = absoluteMax;
-                bestMetric1 = bestMetric2 = -1;
+                bestMetric1 = bestMetric2 = -Double.MAX_VALUE;
                 bestConc1 = bestConc2 = -1;
                 expTestedCount = 0;
                 break;
@@ -369,7 +461,7 @@ public class ScanOrchestrator {
         }
     }
 
-    // ---------- 带早停的并发测试 ----------
+
     private double testConcurrencyWithEarlyStop(int concurrency) throws InterruptedException {
         semaphore.setMaxPermits(concurrency);
         Thread.sleep(config.sampleWarmupSeconds * 1000L);
@@ -383,6 +475,7 @@ public class ScanOrchestrator {
         long elapsed = 0;
         double lastThroughput = 0;
         boolean earlyStop = false;
+        NetworkMonitor nm = NetworkMonitor.getInstance();
 
         while (elapsed < maxTestMillis) {
             Thread.sleep(Math.min(checkInterval, maxTestMillis - elapsed));
@@ -393,15 +486,26 @@ public class ScanOrchestrator {
             long foundDelta = nowFound - startFound;
             double throughput = (double) compDelta / (elapsed / 1000.0);
 
-            if (elapsed >= minTestMillis && foundDelta == 0) {
-                if (lastThroughput > 0) {
-                    double change = Math.abs(throughput - lastThroughput) / lastThroughput;
-                    if (change < STABILITY_THRESHOLD) {
+            if (elapsed >= minTestMillis) {
+                // 如果有发现，检查稳定
+                if (foundDelta > 0) {
+                    if (lastThroughput > 0) {
+                        double change = Math.abs(throughput - lastThroughput) / lastThroughput;
+                        if (change < STABILITY_THRESHOLD) {
+                            earlyStop = true;
+                            break;
+                        }
+                    }
+                    lastThroughput = throughput;
+                } else {
+                    // 无发现：结合错误率判断是否继续
+                    int errRate = nm.getErrorCountInWindow(10); // 最近10秒错误数
+                    // 若错误率较高（>20），网络可能不稳，延长测试；否则可早停
+                    if (errRate < 20) {
                         earlyStop = true;
                         break;
                     }
                 }
-                lastThroughput = throughput;
             }
         }
 
@@ -411,16 +515,17 @@ public class ScanOrchestrator {
         long foundDelta = finalFound - startFound;
 
         double durationSec = (elapsed >= maxTestMillis && !earlyStop) ? config.maxTestSeconds : (elapsed / 1000.0);
-        double throughput = completedDelta / durationSec;
-        double discoveryRate = foundDelta / durationSec;
+        if (durationSec <= 0) durationSec = 1;
+
         if (foundDelta == 0) {
-            // 无发现时，高并发受到更大惩罚，指标为负数
-            return -throughput * config.zeroDiscoveryPenalty;
+            return Double.NEGATIVE_INFINITY;
         } else {
+            double throughput = completedDelta / durationSec;
+            double discoveryRate = foundDelta / durationSec;
             return throughput * discoveryRate;
         }
     }
-    // ---------- 快速验证 ----------
+
     private boolean quickValidate(OperatingSystemMXBean osBean) {
         int test1 = bestConcurrency;
         int test2 = (int) (bestConcurrency * 0.9);
@@ -431,13 +536,26 @@ public class ScanOrchestrator {
             for (int i = 0; i < tests.length; i++) {
                 metrics[i] = testConcurrencyWithEarlyStop(tests[i]);
             }
-            if (metrics[0] >= metrics[1] && metrics[0] >= metrics[2]) {
+            // 忽略负无穷
+            double best = Double.NEGATIVE_INFINITY;
+            int bestIdx = 0;
+            for (int i = 0; i < metrics.length; i++) {
+                if (metrics[i] > best) {
+                    best = metrics[i];
+                    bestIdx = i;
+                }
+            }
+            if (best == Double.NEGATIVE_INFINITY) {
+                // 全部无发现，可能网络问题，返回true保持现状
                 return true;
             }
-            if (metrics[1] > metrics[0]) bestConcurrency = test2;
-            if (metrics[2] > metrics[0]) bestConcurrency = test3;
-            bestMetric = Math.max(metrics[0], Math.max(metrics[1], metrics[2]));
-            return false;
+            if (bestIdx == 0) {
+                return true;
+            } else {
+                bestConcurrency = tests[bestIdx];
+                bestMetric = best;
+                return false;
+            }
         } catch (InterruptedException e) {
             return true;
         } finally {
@@ -449,31 +567,3 @@ public class ScanOrchestrator {
         stopFlag.set(true);
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

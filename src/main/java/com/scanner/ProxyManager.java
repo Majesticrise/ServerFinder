@@ -22,26 +22,23 @@ public class ProxyManager {
     private final ReentrantLock refreshLock = new ReentrantLock();
     private final AtomicBoolean isRefreshing = new AtomicBoolean(false);
 
-
-    // 代理来源
     private static final String API_URL = "https://proxy.scdn.io/api/get_proxy.php?protocol=socks5&count=20";
     private static final String GITHUB_PROXY_URL = "https://raw.githubusercontent.com/HankNovic/ProxyClean/refs/heads/main/SOCKS5.txt";
 
-    // 去重集合
     private final ConcurrentHashMap.KeySetView<String, Boolean> proxySet = ConcurrentHashMap.newKeySet();
 
     private IntSupplier activeTasksSupplier;
     private volatile boolean shouldCrawl = true;
     private final Object crawlLock = new Object();
 
-    // 多线程爬取
     private ExecutorService crawlExecutor;
     private static final int CRAWL_THREADS = 6;
 
-    // 最大代理池容量
     private static final int MAX_POOL_SIZE = 1500;
-    // 裂变触发阈值上限
     private static final int CRAWL_THRESHOLD_MAX = 1000;
+
+    // 控制爬取并发数，防止 API 频率限制
+    private final Semaphore crawlSemaphore = new Semaphore(2);
 
     private ProxyManager() {}
 
@@ -59,16 +56,11 @@ public class ProxyManager {
         scheduler = Executors.newSingleThreadScheduledExecutor();
         crawlExecutor = Executors.newFixedThreadPool(CRAWL_THREADS);
 
-        // 首次加载（异步）
         scheduler.schedule(this::refreshProxies, 1, TimeUnit.SECONDS);
         scheduler.schedule(this::fetchGitHubProxies, 1, TimeUnit.SECONDS);
-        // 定时刷新（30分钟）
         scheduler.scheduleAtFixedRate(this::refreshProxies, 180, 180, TimeUnit.SECONDS);
-        // 补货（30秒）
         scheduler.scheduleAtFixedRate(this::autoRefill, 20, 20, TimeUnit.SECONDS);
-        // 裂变调度：每 3 秒提交爬取任务
         scheduler.scheduleAtFixedRate(this::submitCrawlTasks, 3, 3, TimeUnit.SECONDS);
-        // 定时拉取 GitHub 代理列表（每 10 分钟）
         scheduler.scheduleAtFixedRate(this::fetchGitHubProxies, 10, 10, TimeUnit.MINUTES);
         System.out.println("[代理] 管理器已启动（多线程裂变 + GitHub 代理池，最大容量 " + MAX_POOL_SIZE + "）");
     }
@@ -91,9 +83,6 @@ public class ProxyManager {
         }
     }
 
-    /**
-     * 提交爬取任务（由调度器调用）
-     */
     private void submitCrawlTasks() {
         if (!running.get() || !shouldCrawl) return;
 
@@ -118,65 +107,77 @@ public class ProxyManager {
             }
         }
 
-        // 每次提交至多 3 个爬取任务，避免过量
         for (int i = 0; i < 3; i++) {
             crawlExecutor.submit(this::crawlOne);
         }
     }
-    /**
-     * 归还一个代理（仅当该代理仍然有效时调用）
-     */
+
     public void returnProxy(Proxy proxy) {
         if (!running.get() || proxy == null) return;
-        // 容量保护：如果队列已满，不归还
         if (proxyQueue.size() >= MAX_POOL_SIZE) return;
-        proxyQueue.offer(proxy);
+        InetSocketAddress addr = (InetSocketAddress) proxy.address();
+        String key = addr.getHostString() + ":" + addr.getPort();
+        if (proxySet.add(key)) {
+            proxyQueue.offer(proxy);
+        }
     }
 
-    /**
-     * 单个爬取任务：从队列取一个代理，调用 API 获取新代理
-     */
     private void crawlOne() {
-        if (!running.get()) return;
-        if (proxyQueue.size() >= MAX_POOL_SIZE) return; // 已达上限，不再爬取
-
-        Proxy proxy = proxyQueue.poll();
-        if (proxy == null) {
-            // 队列为空，直连请求一次（限流）
-            try {
-                HttpURLConnection conn = (HttpURLConnection) new URL(API_URL).openConnection();
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                conn.setRequestMethod("GET");
-                int code = conn.getResponseCode();
-                if (code == 200) {
-                    addProxiesFromResponse(conn, "裂变(直连)");
-                }
-            } catch (Exception ignored) {}
+        // 限流：尝试获取信号量，若已被占用则跳过本次
+        if (!crawlSemaphore.tryAcquire()) {
             return;
         }
 
         try {
-            HttpURLConnection conn = (HttpURLConnection) new URL(API_URL).openConnection(proxy);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            conn.setRequestProperty("Accept", "*/*");
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(10000);
-            conn.setRequestMethod("GET");
-
-            int code = conn.getResponseCode();
-            if (code == 200) {
-                addProxiesFromResponse(conn, "裂变");
+            // 再次检查运行状态和池容量，避免无效执行
+            if (!running.get() || !shouldCrawl || proxyQueue.size() >= MAX_POOL_SIZE) {
+                return;
             }
-        } catch (Exception e) {
-            // 代理失效，丢弃
+
+            Proxy proxy = proxyQueue.poll();
+            boolean proxyUsed = false;
+            boolean proxyValid = false;
+
+            try {
+                if (proxy == null) {
+                    HttpURLConnection conn = (HttpURLConnection) new URL(API_URL).openConnection();
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(5000);
+                    conn.setRequestMethod("GET");
+                    int code = conn.getResponseCode();
+                    if (code == 200) {
+                        addProxiesFromResponse(conn, "裂变(直连)");
+                    }
+                    return;
+                }
+
+                proxyUsed = true;
+                HttpURLConnection conn = (HttpURLConnection) new URL(API_URL).openConnection(proxy);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                conn.setRequestProperty("Accept", "*/*");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestMethod("GET");
+
+                int code = conn.getResponseCode();
+                if (code == 200) {
+                    proxyValid = true;
+                    addProxiesFromResponse(conn, "裂变");
+                }
+            } catch (Exception e) {
+                // 代理失效，丢弃
+            } finally {
+                if (proxyUsed && proxyValid) {
+                    returnProxy(proxy);
+                }
+            }
+        } finally {
+            // 释放信号量，允许下一个爬取任务执行
+            crawlSemaphore.release();
         }
     }
 
-    /**
-     * 从 HttpURLConnection 读取响应，解析代理列表，加入队列（容量限制）
-     */
     private void addProxiesFromResponse(HttpURLConnection conn, String source) {
         try {
             BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
@@ -194,7 +195,7 @@ public class ProxyManager {
 
             int added = 0;
             for (var elem : proxiesArray) {
-                if (proxyQueue.size() >= MAX_POOL_SIZE) break; // 容量已满
+                if (proxyQueue.size() >= MAX_POOL_SIZE) break;
                 String addr = elem.getAsString();
                 String[] parts = addr.split(":");
                 if (parts.length == 2) {
@@ -215,9 +216,6 @@ public class ProxyManager {
         } catch (Exception ignored) {}
     }
 
-    /**
-     * 从 GitHub 拉取预验证的 SOCKS5 代理列表
-     */
     private void fetchGitHubProxies() {
         if (!running.get()) return;
         try {
@@ -261,9 +259,6 @@ public class ProxyManager {
         }
     }
 
-    /**
-     * 从 API 获取最新代理（直连模式，作为后备）
-     */
     private void refreshProxies() {
         if (!running.get()) return;
         if (!refreshLock.tryLock()) return;
@@ -355,8 +350,12 @@ public class ProxyManager {
 
     public Proxy getProxy() {
         if (!running.get()) return null;
-        return proxyQueue.poll(); // 取出后不再放回，避免失效代理循环
+        Proxy proxy = proxyQueue.poll();
+        if (proxy != null) {
+            InetSocketAddress addr = (InetSocketAddress) proxy.address();
+            String key = addr.getHostString() + ":" + addr.getPort();
+            proxySet.remove(key);
+        }
+        return proxy;
     }
-
-    // 移除 returnProxy 方法，不再回收用过的代理
 }

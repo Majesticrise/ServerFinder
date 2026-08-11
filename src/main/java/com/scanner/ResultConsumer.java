@@ -1,12 +1,16 @@
 package com.scanner;
 
-import java.io.*;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -29,12 +33,11 @@ public class ResultConsumer implements Runnable {
     private int lineCount = 0;
     private BufferedWriter fileWriter = null;
     private int pendingWrites = 0;
-    private static final int FLUSH_THRESHOLD = 1; // 提高刷盘阈值，提升性能
+    private static final int FLUSH_THRESHOLD = 1;
 
     private static final String CLEAR_SCREEN = "\033[H\033[2J";
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-    // 读写锁：文件写入和去重共享
     private final ReentrantReadWriteLock fileLock = new ReentrantReadWriteLock();
 
     public ResultConsumer(Config config, BlockingQueue<ScanResult> queue, AtomicBoolean stopFlag,
@@ -49,7 +52,6 @@ public class ResultConsumer implements Runnable {
 
         if (config.outputFile != null) {
             try {
-                // 确保父目录存在
                 File parent = new File(config.outputFile).getParentFile();
                 if (parent != null && !parent.exists()) {
                     parent.mkdirs();
@@ -60,9 +62,7 @@ public class ResultConsumer implements Runnable {
             }
         }
 
-        // 启动定期去重任务
         if (config.enableFileDedup && config.fileDedupIntervalSeconds > 0 && config.outputFile != null) {
-            // 1. 启动时立即执行一次去重
             deduplicateFile();
             scheduler.scheduleAtFixedRate(this::deduplicateFile,
                     config.fileDedupIntervalSeconds,
@@ -161,12 +161,10 @@ public class ResultConsumer implements Runnable {
         System.out.flush();
     }
 
-    /**
-     * 将结果追加写入文件（不检查重复）
-     */
     private void saveResult(ScanResult result) {
         if (fileWriter == null || result.ip() == null) return;
-        fileLock.readLock().lock();
+
+        fileLock.writeLock().lock();
         try {
             fileWriter.write(result.ip() + ":" + result.port() + "\n");
             pendingWrites++;
@@ -177,58 +175,48 @@ public class ResultConsumer implements Runnable {
         } catch (IOException e) {
             System.err.println("写入文件失败: " + e.getMessage());
         } finally {
-            fileLock.readLock().unlock();
+            fileLock.writeLock().unlock();
         }
     }
 
     private void flushAndClose() {
-        if (fileWriter != null) {
-            fileLock.writeLock().lock();
-            try {
-                fileWriter.flush();
-                fileWriter.close();
-            } catch (IOException e) {
-                System.err.println("关闭文件失败: " + e.getMessage());
-            } finally {
-                fileWriter = null;
-                fileLock.writeLock().unlock();
-            }
+        if (fileWriter == null) return;
+
+        fileLock.writeLock().lock();
+        try {
+            fileWriter.flush();
+            fileWriter.close();
+        } catch (IOException e) {
+            System.err.println("关闭文件失败: " + e.getMessage());
+        } finally {
+            fileWriter = null;
+            fileLock.writeLock().unlock();
         }
     }
 
-    /**
-     * 定期去重任务：读取文件，以 IP 为键去重，写回文件
-     */
+
     private void deduplicateFile() {
         String filename = config.outputFile;
         if (filename == null) return;
         File file = new File(filename);
         if (!file.exists() || file.length() == 0) return;
 
-        // 使用写锁，阻塞写入
         fileLock.writeLock().lock();
         try {
-            // 1. 读取所有行
             List<String> lines = Files.readAllLines(Paths.get(filename), StandardCharsets.UTF_8);
             if (lines.isEmpty()) return;
 
-            // 2. 以 IP 为键去重（保留第一次出现的行）
             LinkedHashMap<String, String> uniqueMap = new LinkedHashMap<>();
             for (String line : lines) {
                 line = line.trim();
                 if (line.isEmpty()) continue;
-                int colonIdx = line.indexOf(':');
-                if (colonIdx <= 0) continue;
-                String ip = line.substring(0, colonIdx);
-                // 只保留第一次出现的 IP
-                if (!uniqueMap.containsKey(ip)) {
-                    uniqueMap.put(ip, line);
+                // 直接以完整行（即IP:PORT）为键
+                if (!uniqueMap.containsKey(line)) {
+                    uniqueMap.put(line, line);
                 }
             }
 
-            // 如果去重后行数减少，才写回
             if (uniqueMap.size() < lines.size()) {
-                // 写回文件
                 try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(filename), StandardCharsets.UTF_8)) {
                     for (String line : uniqueMap.values()) {
                         writer.write(line);

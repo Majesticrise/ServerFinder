@@ -11,10 +11,16 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
 
 public final class MinecraftPinger {
     // 三个主流版本：1.20.1(763), 1.12.2(340), 1.8.9(47)
     private static final int[] PROTOCOL_VERSIONS = {763, 340, 47};
+
+    // 共享虚拟线程执行器，避免每次创建新对象
+    private static final ExecutorService PINGER_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
     // ---------- 直连（兼容原接口） ----------
     public static boolean isMinecraftServer(String ip, int port, double timeoutSec) {
@@ -23,20 +29,23 @@ public final class MinecraftPinger {
 
     // ---------- 支持代理 ----------
     public static boolean isMinecraftServer(String ip, int port, double timeoutSec, Proxy proxy) {
-        // 按版本优先级串行尝试（避免并行造成的性能浪费）
+        // 创建 3 个并发任务，同时向不同协议版本发起握手
+        List<Callable<Boolean>> tasks = new ArrayList<>();
         for (int ver : PROTOCOL_VERSIONS) {
-            try {
-                if (pingModern(ip, port, timeoutSec, ver, proxy)) {
-                    return true;
-                }
-            } catch (Exception ignored) {
-                // 单个版本失败，继续下一个
-            }
+            tasks.add(() -> pingModern(ip, port, timeoutSec, ver, proxy));
         }
-        return false;
+
+        try {
+            // 使用共享执行器，invokeAny 会自动管理任务生命周期
+            return PINGER_EXECUTOR.invokeAny(tasks, (long) (timeoutSec * 1000), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            return false; // 超时无响应
+        } catch (Exception e) {
+            return false; // 全部失败
+        }
     }
 
-    // ---------- 核心探测（已修复 JSON 读取逻辑） ----------
+    // ---------- 核心探测 ----------
     private static boolean pingModern(String ip, int port, double timeoutSec, int protocolVersion, Proxy proxy) {
         try (Socket socket = proxy == null ? new Socket() : new Socket(proxy)) {
             int timeoutMillis = (int) (timeoutSec * 1000);
@@ -79,7 +88,7 @@ public final class MinecraftPinger {
 
             // 3. 读取 JSON 字符串长度（VarInt）
             int jsonLength = readVarInt(in);
-            if (jsonLength < 2 || jsonLength >131072) return false;
+            if (jsonLength < 2 || jsonLength > 131072) return false;
 
             // 4. 按长度读取 JSON 字符串
             byte[] jsonBytes = new byte[jsonLength];
@@ -102,7 +111,7 @@ public final class MinecraftPinger {
         }
     }
 
-    // ---------- VarInt / String 工具（保持不变） ----------
+    // ---------- VarInt / String 工具 ----------
     private static void writeVarInt(DataOutputStream out, int value) throws IOException {
         do {
             int temp = value & 0x7F;

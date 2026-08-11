@@ -140,7 +140,7 @@ The evaluation metric is `throughput × discovery rate`; if no servers are found
 - Discovered servers are appended to `found_servers.txt` in `IP:port` format.  
   发现的服务器以 `IP:端口` 格式追加至 `found_servers.txt`。
 
--Every 10 minutes (configurable), the file is deduplicated by the full `IP:port` line – only the first occurrence of each unique entry is kept.  
+- Every 10 minutes (configurable), the file is deduplicated by the full `IP:port` line – only the first occurrence of each unique entry is kept.  
  每 10 分钟（可配置）自动去重，同一 `IP:端口` 只保留首次记录。
 
 - On program exit, the current best concurrency is saved, allowing faster convergence on the next start.  

@@ -18,13 +18,6 @@
 | **Dual Display Modes**<br>双模式展示 | Scrollable list mode and real‑time speed summary mode, giving you clear visibility into scanning progress.<br>滚动列表模式与实时速度摘要模式，清晰掌握扫描进度。 |
 
 ---
-## ✦ Quick Start / 快速开始
-
-### Requirements / 环境要求
-- **Java 21+** (virtual thread support / 虚拟线程支持)
-- Recommended: 2 GB+ RAM, outbound bandwidth ≥ 10 Mbps  
-  建议 2GB 以上内存，公网出口带宽 ≥ 10 Mbps
-
 
 ## ✦ Architecture Overview / 架构概览
 
@@ -99,6 +92,14 @@ The evaluation metric is `throughput × discovery rate`; if no servers are found
 
 - On program exit, the current best concurrency is saved, allowing faster convergence on the next start.  
   程序退出时自动保存当前最优并发值，下次启动可快速收敛。
+
+## ✦ Quick Start / 快速开始
+
+### Requirements / 环境要求
+- **Java 21+** (virtual thread support / 虚拟线程支持)
+- Recommended: 2 GB+ RAM, outbound bandwidth ≥ 10 Mbps  
+  建议 2GB 以上内存，公网出口带宽 ≥ 10 Mbps
+
 
 ## ✦ Important Notes / 注意事项
 

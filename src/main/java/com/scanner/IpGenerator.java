@@ -4,27 +4,27 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public final class IpGenerator {
 
-    /**
-     * 原字符串接口（保持兼容），内部委托给高效的 int 校验。
-     */
-    public static boolean isPublicIp(String ip) {
-        String[] parts = ip.split("\\.");
-        if (parts.length != 4) return false;
-        try {
-            int a = Integer.parseInt(parts[0]);
-            int b = Integer.parseInt(parts[1]);
-            int c = Integer.parseInt(parts[2]);
-            int d = Integer.parseInt(parts[3]);
-            // 每一段必须 0~255
-            if ((a | b | c | d) < 0 || (a | b | c | d) > 255) {
-                return false;
-            }
-            int ipInt = (a << 24) | (b << 16) | (c << 8) | d;
-            return isPublicIp(ipInt);
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
+//    /**
+//     * 原字符串接口（保持兼容），内部委托给高效的 int 校验。
+//     */
+//    public static boolean isPublicIp(String ip) {
+//        String[] parts = ip.split("\\.");
+//        if (parts.length != 4) return false;
+//        try {
+//            int a = Integer.parseInt(parts[0]);
+//            int b = Integer.parseInt(parts[1]);
+//            int c = Integer.parseInt(parts[2]);
+//            int d = Integer.parseInt(parts[3]);
+//            // 每一段必须 0~255
+//            if ((a | b | c | d) < 0 || (a | b | c | d) > 255) {
+//                return false;
+//            }
+//            int ipInt = (a << 24) | (b << 16) | (c << 8) | d;
+//            return isPublicIp(ipInt);
+//        } catch (NumberFormatException e) {
+//            return false;
+//        }
+//    }
 
     /**
      * 高效校验：直接用 int 表示的 IP 与预定义掩码比较。

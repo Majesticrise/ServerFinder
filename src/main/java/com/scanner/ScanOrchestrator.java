@@ -3,7 +3,9 @@ package com.scanner;
 import com.sun.management.OperatingSystemMXBean;
 
 import java.lang.management.ManagementFactory;
-import java.util.concurrent.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -28,8 +30,9 @@ public class ScanOrchestrator {
 
     // 指数下降阶段
     private int expCurrentConcurrency;
-    private double expFactor;
-    private double bestMetric1 = -1, bestMetric2 = -1;
+    private final double expFactor;
+    private double bestMetric1 = -Double.MAX_VALUE;
+    private double bestMetric2 = -Double.MAX_VALUE;
     private int bestConc1 = -1, bestConc2 = -1;
     private int expTestedCount = 0;
 
@@ -53,7 +56,6 @@ public class ScanOrchestrator {
     private static final double NOISE_THRESHOLD = 0.10;
     private static final double STABILITY_THRESHOLD = 0.05;
 
-    private volatile boolean hasDowngradedByMemory = false;
 
     // ---------- 公开方法 ----------
     public int getProxyTaskCount() {
@@ -186,8 +188,8 @@ public class ScanOrchestrator {
 
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                double memUsage = (double) (osBean.getTotalPhysicalMemorySize() - osBean.getFreePhysicalMemorySize())
-                        / osBean.getTotalPhysicalMemorySize();
+                double memUsage = (double) (osBean.getTotalMemorySize() - osBean.getFreeMemorySize())
+                        / osBean.getTotalMemorySize();
                 if (memUsage > config.memoryEmergencyThreshold) {
                     int emergencyMax = (int) (semaphore.getMaxPermits() * config.memoryDowngradeFactor);
                     semaphore.setMaxPermits(Math.max(emergencyMax, absoluteMin));
@@ -411,13 +413,13 @@ public class ScanOrchestrator {
         double durationSec = (elapsed >= maxTestMillis && !earlyStop) ? config.maxTestSeconds : (elapsed / 1000.0);
         double throughput = completedDelta / durationSec;
         double discoveryRate = foundDelta / durationSec;
-        double metric = throughput * discoveryRate;
         if (foundDelta == 0) {
-            metric = throughput * 0.0001;
+            // 无发现时，高并发受到更大惩罚，指标为负数
+            return -throughput * config.zeroDiscoveryPenalty;
+        } else {
+            return throughput * discoveryRate;
         }
-        return metric;
     }
-
     // ---------- 快速验证 ----------
     private boolean quickValidate(OperatingSystemMXBean osBean) {
         int test1 = bestConcurrency;

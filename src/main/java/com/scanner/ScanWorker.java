@@ -59,7 +59,6 @@ public class ScanWorker implements Runnable {
                     resultConsumer.accept(new ScanResult(ip, false, port));
                 }
                 submitted = true;
-                ProxyManager.getInstance().returnProxy(proxy);
                 proxyTaskCounter.decrementAndGet();
                 return;
             }

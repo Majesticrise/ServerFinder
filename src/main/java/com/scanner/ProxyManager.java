@@ -22,21 +22,25 @@ public class ProxyManager {
     private final ReentrantLock refreshLock = new ReentrantLock();
     private final AtomicBoolean isRefreshing = new AtomicBoolean(false);
 
-    // ---- 代理来源 ----
+    // 代理来源
     private static final String API_URL = "https://proxy.scdn.io/api/get_proxy.php?protocol=socks5&count=20";
     private static final String GITHUB_PROXY_URL = "https://raw.githubusercontent.com/HankNovic/ProxyClean/refs/heads/main/SOCKS5.txt";
 
-    // ---- 去重 ----
+    // 去重集合
     private final ConcurrentHashMap.KeySetView<String, Boolean> proxySet = ConcurrentHashMap.newKeySet();
 
     private IntSupplier activeTasksSupplier;
     private volatile boolean shouldCrawl = true;
     private final Object crawlLock = new Object();
 
-    // ---- 多线程爬取 ----
+    // 多线程爬取
     private ExecutorService crawlExecutor;
     private static final int CRAWL_THREADS = 6;
-    private final Semaphore crawlSemaphore = new Semaphore(CRAWL_THREADS);
+
+    // 最大代理池容量
+    private static final int MAX_POOL_SIZE = 1500;
+    // 裂变触发阈值上限
+    private static final int CRAWL_THRESHOLD_MAX = 1000;
 
     private ProxyManager() {}
 
@@ -63,9 +67,9 @@ public class ProxyManager {
         scheduler.scheduleAtFixedRate(this::autoRefill, 20, 20, TimeUnit.SECONDS);
         // 裂变调度：每 3 秒提交爬取任务
         scheduler.scheduleAtFixedRate(this::submitCrawlTasks, 3, 3, TimeUnit.SECONDS);
-        // 【新增】定时拉取 GitHub 代理列表（每 10 分钟）
+        // 定时拉取 GitHub 代理列表（每 10 分钟）
         scheduler.scheduleAtFixedRate(this::fetchGitHubProxies, 10, 10, TimeUnit.MINUTES);
-        System.out.println("[代理] 管理器已启动（多线程裂变 + GitHub 代理池已启用）");
+        System.out.println("[代理] 管理器已启动（多线程裂变 + GitHub 代理池，最大容量 " + MAX_POOL_SIZE + "）");
     }
 
     public synchronized void shutdown() {
@@ -94,7 +98,7 @@ public class ProxyManager {
 
         int activeTasks = activeTasksSupplier != null ? activeTasksSupplier.getAsInt() : 0;
         if (activeTasks > 0) {
-            int threshold = (int) (activeTasks * 1.2);
+            int threshold = Math.min((int) (activeTasks * 1.5), CRAWL_THRESHOLD_MAX);
             if (proxyQueue.size() >= threshold) {
                 synchronized (crawlLock) {
                     if (shouldCrawl) {
@@ -113,8 +117,8 @@ public class ProxyManager {
             }
         }
 
-        // 每次提交 5 个爬取任务
-        for (int i = 0; i < 5; i++) {
+        // 每次提交至多 3 个爬取任务，避免过量
+        for (int i = 0; i < 3; i++) {
             crawlExecutor.submit(this::crawlOne);
         }
     }
@@ -124,10 +128,11 @@ public class ProxyManager {
      */
     private void crawlOne() {
         if (!running.get()) return;
+        if (proxyQueue.size() >= MAX_POOL_SIZE) return; // 已达上限，不再爬取
 
         Proxy proxy = proxyQueue.poll();
         if (proxy == null) {
-            // 队列为空，直接直连调用一次
+            // 队列为空，直连请求一次（限流）
             try {
                 HttpURLConnection conn = (HttpURLConnection) new URL(API_URL).openConnection();
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
@@ -136,7 +141,7 @@ public class ProxyManager {
                 conn.setRequestMethod("GET");
                 int code = conn.getResponseCode();
                 if (code == 200) {
-                    addProxiesFromResponse(conn);
+                    addProxiesFromResponse(conn, "裂变(直连)");
                 }
             } catch (Exception ignored) {}
             return;
@@ -151,20 +156,18 @@ public class ProxyManager {
             conn.setRequestMethod("GET");
 
             int code = conn.getResponseCode();
-            if (code != 200) {
-                return;
+            if (code == 200) {
+                addProxiesFromResponse(conn, "裂变");
             }
-            addProxiesFromResponse(conn);
-
         } catch (Exception e) {
-            // 代理连接失败，丢弃
+            // 代理失效，丢弃
         }
     }
 
     /**
-     * 从 HttpURLConnection 读取响应，解析代理列表，加入队列（不验证）
+     * 从 HttpURLConnection 读取响应，解析代理列表，加入队列（容量限制）
      */
-    private void addProxiesFromResponse(HttpURLConnection conn) {
+    private void addProxiesFromResponse(HttpURLConnection conn, String source) {
         try {
             BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
             StringBuilder sb = new StringBuilder();
@@ -181,6 +184,7 @@ public class ProxyManager {
 
             int added = 0;
             for (var elem : proxiesArray) {
+                if (proxyQueue.size() >= MAX_POOL_SIZE) break; // 容量已满
                 String addr = elem.getAsString();
                 String[] parts = addr.split(":");
                 if (parts.length == 2) {
@@ -196,7 +200,7 @@ public class ProxyManager {
                 }
             }
             if (added > 0) {
-                System.out.println("[裂变] 新增 " + added + " 个代理，当前总数: " + proxyQueue.size());
+                System.out.println("[" + source + "] 新增 " + added + " 个代理，当前池大小: " + proxyQueue.size());
             }
         } catch (Exception ignored) {}
     }
@@ -221,10 +225,9 @@ public class ProxyManager {
             BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
             String line;
             int added = 0;
-            while ((line = reader.readLine()) != null) {
+            while ((line = reader.readLine()) != null && proxyQueue.size() < MAX_POOL_SIZE) {
                 line = line.trim();
                 if (line.isEmpty()) continue;
-                // 【修改点】去除 "socks5://" 前缀
                 String addr = line.startsWith("socks5://") ? line.substring(9) : line;
                 String[] parts = addr.split(":");
                 if (parts.length == 2) {
@@ -241,7 +244,7 @@ public class ProxyManager {
             }
             reader.close();
             if (added > 0) {
-                System.out.println("[GitHub代理] 新增 " + added + " 个代理，当前总数: " + proxyQueue.size());
+                System.out.println("[GitHub代理] 新增 " + added + " 个代理，当前池大小: " + proxyQueue.size());
             }
         } catch (Exception e) {
             System.err.println("[GitHub代理] 拉取异常: " + e.getMessage());
@@ -259,7 +262,6 @@ public class ProxyManager {
         try {
             int maxRetries = 3;
             int retryDelay = 2000;
-            Exception lastException = null;
 
             for (int attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
@@ -301,6 +303,7 @@ public class ProxyManager {
 
                     int added = 0;
                     for (var elem : proxiesArray) {
+                        if (proxyQueue.size() >= MAX_POOL_SIZE) break;
                         String addr = elem.getAsString();
                         String[] parts = addr.split(":");
                         if (parts.length == 2) {
@@ -316,16 +319,13 @@ public class ProxyManager {
                         }
                     }
                     if (added > 0) {
-                        System.out.println("[补货] 追加 " + added + " 个代理，当前总数: " + proxyQueue.size());
+                        System.out.println("[补货] 追加 " + added + " 个代理，当前池大小: " + proxyQueue.size());
                     } else {
-                        System.err.println("[补货] 获取到 " + proxiesArray.size() + " 个代理，但均已存在或无效");
+                        System.err.println("[补货] 获取到 " + proxiesArray.size() + " 个代理，但均已存在或池已满");
                     }
-
-                    lastException = null;
                     break;
 
                 } catch (Exception e) {
-                    lastException = e;
                     if (attempt < maxRetries) {
                         System.err.println("[代理] 刷新失败 (尝试 " + attempt + "/" + maxRetries + ")，2秒后重试...");
                         Thread.sleep(retryDelay);
@@ -333,10 +333,6 @@ public class ProxyManager {
                         System.err.println("[代理] 刷新失败: " + e.getMessage());
                     }
                 }
-            }
-
-            if (lastException != null) {
-                System.err.println("[代理] 本次刷新失败，保留现有代理继续使用");
             }
 
         } catch (InterruptedException e) {
@@ -349,11 +345,8 @@ public class ProxyManager {
 
     public Proxy getProxy() {
         if (!running.get()) return null;
-        return proxyQueue.poll();
+        return proxyQueue.poll(); // 取出后不再放回，避免失效代理循环
     }
 
-    public void returnProxy(Proxy proxy) {
-        if (!running.get() || proxy == null) return;
-        proxyQueue.offer(proxy);
-    }
+    // 移除 returnProxy 方法，不再回收用过的代理
 }

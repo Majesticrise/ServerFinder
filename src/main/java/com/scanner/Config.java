@@ -27,6 +27,7 @@ public class Config {
     public int minTestSeconds = 30;              // 最少测试时间（秒）
     public int maxTestSeconds = 120;             // 最多测试时间（秒，有发现时测满）
     public int sampleWarmupSeconds = 15;         // 切换并发后的稳定预热时间（秒）
+    public double zeroDiscoveryPenalty = 0.001; // 无发现时吞吐量惩罚系数
 
     // 锁定与验证
     public int lockedCheckInterval = 600;        // 锁定后验证间隔（秒）

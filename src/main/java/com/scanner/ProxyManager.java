@@ -22,6 +22,7 @@ public class ProxyManager {
     private final ReentrantLock refreshLock = new ReentrantLock();
     private final AtomicBoolean isRefreshing = new AtomicBoolean(false);
 
+
     // 代理来源
     private static final String API_URL = "https://proxy.scdn.io/api/get_proxy.php?protocol=socks5&count=20";
     private static final String GITHUB_PROXY_URL = "https://raw.githubusercontent.com/HankNovic/ProxyClean/refs/heads/main/SOCKS5.txt";
@@ -121,6 +122,15 @@ public class ProxyManager {
         for (int i = 0; i < 3; i++) {
             crawlExecutor.submit(this::crawlOne);
         }
+    }
+    /**
+     * 归还一个代理（仅当该代理仍然有效时调用）
+     */
+    public void returnProxy(Proxy proxy) {
+        if (!running.get() || proxy == null) return;
+        // 容量保护：如果队列已满，不归还
+        if (proxyQueue.size() >= MAX_POOL_SIZE) return;
+        proxyQueue.offer(proxy);
     }
 
     /**

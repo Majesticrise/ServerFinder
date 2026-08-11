@@ -40,16 +40,21 @@ public class ScanWorker implements Runnable {
             }
 
             if (proxy != null) {
+                // ---------- 代理模式 ----------
                 proxyTaskCounter.incrementAndGet();
                 double proxyTimeout = config.proxyTimeout > 0 ? config.proxyTimeout : timeout;
-                boolean portOpen;
+                boolean portOpen = false;
+                boolean proxyValid = false;
+
                 try {
                     portOpen = PortChecker.isPortOpen(ip, port, proxyTimeout, proxy);
+                    proxyValid = true;   // 连接成功，标记代理有效
                 } catch (Exception e) {
+                    // 代理连接失败，代理无效，直接丢弃
                     resultConsumer.accept(new ScanResult(ip, false, port));
                     submitted = true;
                     proxyTaskCounter.decrementAndGet();
-                    return;
+                    return;   // 不归还无效代理
                 }
 
                 if (portOpen) {
@@ -59,11 +64,16 @@ public class ScanWorker implements Runnable {
                     resultConsumer.accept(new ScanResult(ip, false, port));
                 }
                 submitted = true;
+
+                // 只有验证有效的代理才归还池中
+                if (proxyValid) {
+                    ProxyManager.getInstance().returnProxy(proxy);
+                }
                 proxyTaskCounter.decrementAndGet();
                 return;
             }
 
-            // 直连模式
+            // ---------- 直连模式 ----------
             boolean portOpen = PortChecker.isPortOpen(ip, port, timeout, null);
             if (portOpen) {
                 boolean isMc = MinecraftPinger.isMinecraftServer(ip, port, timeout, null);

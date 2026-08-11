@@ -4,9 +4,6 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public final class IpGenerator {
 
-//    /**
-//     * 原字符串接口（保持兼容），内部委托给高效的 int 校验。
-//     */
 //    public static boolean isPublicIp(String ip) {
 //        String[] parts = ip.split("\\.");
 //        if (parts.length != 4) return false;

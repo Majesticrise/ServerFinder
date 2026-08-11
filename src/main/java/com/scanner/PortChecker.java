@@ -16,13 +16,8 @@ public final class PortChecker {
         } catch (SocketTimeoutException e) {
             NetworkMonitor.getInstance().recordTimeout();
             return false;
-        } catch (BindException e) {
+        } catch (BindException | NoRouteToHostException e) {
             NetworkMonitor.getInstance().recordError();
-            return false;
-        } catch (NoRouteToHostException e) {
-            NetworkMonitor.getInstance().recordError();
-            return false;
-        } catch (ConnectException e) {
             return false;
         } catch (IOException e) {
             return false;

@@ -95,8 +95,7 @@ public final class MinecraftPinger {
 
             // 6. 精确解析并校验类型
             JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
-            if (!obj.has("version")) return false;
-            return true;
+            return obj.has("version");
 
         } catch (Exception e) {
             return false;

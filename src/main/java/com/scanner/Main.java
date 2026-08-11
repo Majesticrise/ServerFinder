@@ -37,7 +37,7 @@ public class Main {
         config.total = (mode == 1) ? promptInt("生成数量（默认 102400）: ", 102400, 1, Integer.MAX_VALUE) : -1;
 
         config.concurrency = promptInt("并发数（默认 10240）: ", 10240, 1, Integer.MAX_VALUE);
-        config.timeout = promptDouble("超时时间（秒，默认 2.5）: ", 2.5, 0.1);
+        config.timeout = promptDouble();
         config.port = promptInt("端口（默认 25565）: ", 25565, 1, 65535);
 
         config.displayMode = promptInt(
@@ -63,8 +63,7 @@ public class Main {
 
         config.adaptive = promptYesNo("是否启用自适应并发（根据发现速率自动调整）", true);
 
-        boolean useProxy = promptYesNo("是否启用SOCKS5代理池（隐藏真实IP，避免封禁）", false);
-        config.useProxy = useProxy;
+        config.useProxy = promptYesNo("是否启用SOCKS5代理池（隐藏真实IP，避免封禁）", false);
 
         // ---- 保存用户交互后的配置（覆盖文件） ----
         saveConfig(config);
@@ -214,15 +213,15 @@ public class Main {
         }
     }
 
-    private static double promptDouble(String prompt, double defaultValue, double min) {
+    private static double promptDouble() {
         while (true) {
-            System.out.print(prompt);
+            System.out.print("超时时间（秒，默认 2.5）: ");
             try {
                 String line = console.readLine().trim();
-                if (line.isEmpty()) return defaultValue;
+                if (line.isEmpty()) return 2.5;
                 double val = Double.parseDouble(line);
-                if (val < min) {
-                    System.out.printf("请输入大于等于 %.1f 的数字。\n", min);
+                if (val < 0.1) {
+                    System.out.printf("请输入大于等于 %.1f 的数字。\n", 0.1);
                     continue;
                 }
                 return val;

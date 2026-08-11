@@ -1,7 +1,6 @@
 package com.scanner;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class NetworkMonitor {
     private static final NetworkMonitor INSTANCE = new NetworkMonitor();

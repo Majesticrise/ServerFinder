@@ -42,7 +42,7 @@ public class ScanWorker implements Runnable {
             if (proxy != null) {
                 proxyTaskCounter.incrementAndGet();
                 double proxyTimeout = config.proxyTimeout > 0 ? config.proxyTimeout : timeout;
-                boolean portOpen = false;
+                boolean portOpen;
                 try {
                     portOpen = PortChecker.isPortOpen(ip, port, proxyTimeout, proxy);
                 } catch (Exception e) {

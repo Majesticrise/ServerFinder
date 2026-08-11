@@ -1,0 +1,40 @@
+name: Build JAR
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Prepare Maven project structure
+        run: |
+          # 创建标准 Maven 源码目录
+          mkdir -p src/main/java/com/scanner
+          # 将所有 .java 文件移动到正确位置（排除已有 pom.xml）
+          find . -maxdepth 1 -name "*.java" -exec mv {} src/main/java/com/scanner/ \;
+          # 保留根目录下的配置文件（如 scanner_config.json）—— 它们将在运行时被读取
+
+      - name: Build with Maven
+        run: mvn clean package
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minecraft-scanner-jar
+          # shade 插件默认生成的是 original-xxx.jar 和 xxx.jar（带依赖的）
+          # 通常带依赖的 JAR 名为 minecraft-scanner-1.0.jar（取决于 pom 中的 artifactId + version）
+          path: target/*.jar

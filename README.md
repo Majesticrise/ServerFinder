@@ -34,15 +34,15 @@
 
 ## ✦ Features / 功能
 
-| Feature / 功能                                  | Description / 描述                                                                                                                                                                                                                                                                                                                  |
-|-----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Hybrid Adaptive Concurrency**<br>混合自适应并发    | Dynamically adjusts scanning concurrency based on discovery rate, from exponential coarse sweep to golden‑section fine tuning, automatically locking onto the optimal throughput.<br>基于发现速率动态调整扫描并发数，从指数粗扫到黄金分割细扫，自动锁定最优吞吐量。                                                                                                      |
-| **SOCKS5 Proxy Pool**<br>SOCKS5 代理池           | Built‑in proxy fission and GitHub public pool integration, with automatic refill, deduplication, and invalidation – effectively conceals your real IP.<br>内置代理裂变与 GitHub 公共池，自动补货、去重与失效回收，有效隐藏真实 IP。                                                                                                                              |
-| **Multi‑Version Protocol Probing**<br>多协议版本探测 | Simultaneously attempts three mainstream protocol versions: 1.20.1 (763), 1.12.2 (340), and 1.8.9 (47), covering the vast majority of servers.<br>同时尝试 1.20.1、1.12.2、1.8.9 三个主流协议版本，兼容绝大多数服务器。                                                                                                                                    |
-| **Smart Result Management**<br>智能结果管理         | Writes results to file in real time, periodically deduplicates by the full `IP:port` line, and automatically cleans up the output file.<br>实时写入文件，定期基于 `IP:端口` 完整行去重（避免重复记录），支持输出文件自动整理。                                                                                                                                          |
-| **Memory & Stability Safeguards**<br>内存与稳定性保障 | Memory water‑level monitoring with emergency throttling; network error and timeout statistics aid health assessment of the proxy pool.<br>内存水位监控，紧急降速；网络错误与超时统计，辅助判断代理池健康。                                                                                                                                                        |
-| **Dual Display Modes**<br>双模式展示               | Scrollable list mode and real‑time speed summary mode, giving you clear visibility into scanning progress.<br>滚动列表模式与实时速度摘要模式，清晰掌握扫描进度。                                                                                                                                                                                           |
-| **Ultra‑Fast IP Generation**<br>极速 IP 生成引擎    | Employs **hexadecimal bitmasks** and **ternary bitwise operations** for **O(1) constant‑time** public IP classification, eliminating string parsing overhead and enabling sub‑microsecond generation with zero intermediate allocations.<br>采用 **十六进制位掩码** 与 **三目位运算** 实现 **O(1) 常数时间** 的公网 IP 分类判定，彻底消除字符串解析开销，实现亚微秒级生成与零中间状态分配。 |
+| Feature / 功能                                  | Description / 描述                                                                                                                                                                                                                                                                                                                        |
+|-----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Hybrid Adaptive Concurrency**<br>混合自适应并发    | Dynamically adjusts scanning concurrency based on discovery rate, from exponential coarse sweep to golden‑section fine tuning, automatically locking onto the optimal throughput.<br>基于发现速率动态调整扫描并发数，从指数粗扫到黄金分割细扫，自动锁定最优吞吐量。                                                                                                            |
+| **SOCKS5 Proxy Pool**<br>SOCKS5 代理池           | Built‑in proxy fission and GitHub public pool integration, with automatic refill, deduplication, and invalidation – effectively conceals your real IP.<br>内置代理裂变与 GitHub 公共池，自动补货、去重与失效回收，有效隐藏真实 IP。                                                                                                                                    |
+| **Multi‑Version Protocol Probing**<br>多协议版本探测 | Simultaneously attempts three mainstream protocol versions: 1.20.1 (763), 1.12.2 (340), and 1.8.9 (47), covering the vast majority of servers.<br>同时尝试 1.20.1、1.12.2、1.8.9 三个主流协议版本，兼容绝大多数服务器。                                                                                                                                          |
+| **Smart Result Management**<br>智能结果管理         | Writes results to file in real time, periodically deduplicates by the full `IP:port` line, and automatically cleans up the output file.<br>实时写入文件，定期基于 `IP:端口` 完整行去重（避免重复记录），支持输出文件自动整理。                                                                                                                                                |
+| **Memory & Stability Safeguards**<br>内存与稳定性保障 | Memory water‑level monitoring with emergency throttling; network error and timeout statistics aid health assessment of the proxy pool.<br>内存水位监控，紧急限流；网络错误与超时统计，辅助判断代理池健康。                                                                                                                                                              |
+| **Dual Display Modes**<br>双模式展示               | Scrollable list mode and real‑time speed summary mode, giving you clear visibility into scanning progress.<br>滚动列表模式与实时状态概览模式，清晰掌握扫描进度。                                                                                                                                                                                                 |
+| **Ultra‑Fast IP Generation**<br>极速 IP 生成引擎    | Employs **Hexadecimal Bitmasks** and **Bitwise & Equality Predicates** for **O(1) constant‑time** public IP classification, eliminating string parsing overhead and enabling sub‑microsecond generation with zero intermediate allocations.<br>采用 **十六进制位掩码** 与 **位运算与短路求值** 实现 **O(1) 常数时间** 的公网 IP 分类判定，彻底消除字符串解析开销，实现亚微秒级生成与零中间状态分配。 |
 ---
 
 ## ✦ Architecture Overview / 架构概览
@@ -86,10 +86,10 @@ The `IpGenerator` module is a masterpiece of **low‑overhead systems design**:
 
 `IpGenerator` 模块是 **低开销系统设计** 的典范之作：
 
-- **Hexadecimal Bitmask Classification** – Uses pre‑computed `0xFF000000`, `0xFFFF0000`, `0xFFF00000`, and `0xF0000000` masks to evaluate IP ranges against 15 reserved blocks in a single branch chain.  
+- **Hexadecimal Bitmask Classification** – Uses pre‑computed masks (`0xFF000000`, `0xFFFF0000`, `0xFFF00000`, `0xF0000000`) to evaluate IP ranges against 15 reserved blocks in a single branch chain.  
   **十六进制位掩码分类** – 使用预计算的 `0xFF000000`、`0xFFFF0000`、`0xFFF00000` 与 `0xF0000000` 掩码，在单一分支链中完成对 15 个保留地址段的判定。
 
-- **Ternary Bitwise Operations** – Employs `(ip & MASK) == CONSTANT` predicates with short‑circuit evaluation, achieving **O(1) constant‑time** classification with no loops or hash lookups.  
+- **Bitwise & Equality Predicates** – Employs `(ip & MASK) == CONSTANT` predicates with short‑circuit evaluation, achieving **O(1) constant‑time** classification with no loops or hash lookups.  
   **三目位运算** – 采用 `(ip & MASK) == CONSTANT` 谓词与短路求值，实现 **O(1) 常数时间** 分类，无循环、无哈希查找。
 
 - **Zero‑Allocation Random Generation** – Directly constructs the 32‑bit integer from four random octets, defers string conversion only after successful validation, eliminating GC pressure from discarded private IP strings.  
@@ -129,8 +129,8 @@ The evaluation metric is `throughput × discovery rate`; if no servers are found
 - **Lazy Validation / 惰性验证**: Proxies are validated only when used; valid ones are returned to the pool, invalid ones are discarded.  
   代理仅在实际使用中验证，有效则归还，无效自动丢弃。
 
-- **Rate‑Limited Fission / 裂变限流**: Fission requests are rate‑limited to 2 concurrent to avoid triggering API rate limits.  
-  裂变请求限流为 2 个并发，避免触发 API 频率限制。
+- **Rate‑Limited Fission / 裂变限流**: Fission requests are rate‑limited to a maximum of 2 concurrent to avoid triggering API rate limits.
+  裂变请求限制最多 2 个并发，避免触发 API 频率限制。
 
 - **Capacity Limit / 容量上限**: Pool size is capped at 1500 to prevent memory bloat.  
   池大小上限 1500，避免内存膨胀。

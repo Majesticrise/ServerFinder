@@ -23,7 +23,7 @@
 - [Configuration Details / 配置详解](#-configuration-details--配置详解)
 - [IP Generation / IP 生成引擎](#-ip-generation--ip-生成引擎)
 - [Adaptive Concurrency Algorithm / 自适应并发算法](#-adaptive-concurrency-algorithm--自适应并发算法)
-- - [Proxy Pool Mechanics / 代理池机制](#-proxy-pool-mechanics--代理池机制)
+- [Proxy Pool Mechanics / 代理池机制](#-proxy-pool-mechanics--代理池机制)
 - [Output & Deduplication / 输出与去重](#-output--deduplication--输出与去重)
 - [Important Notes / 注意事项](#-important-notes--注意事项)
 - [Customisation & Extensions / 扩展与定制](#-customisation--extensions--扩展与定制)
@@ -79,16 +79,27 @@ Key fields in `scanner_config.json`:
 For a complete list, refer to the comments in `Config.java`.  
 完整参数请参考 `Config.java` 中的注释。
 
+
 ## ✦ IP Generation / IP 生成引擎
 
 The `IpGenerator` module is a masterpiece of **low‑overhead systems design**:
 
-- **Hexadecimal Bitmask Classification** – Uses pre‑computed `0xFF000000`, `0xFFFF0000`, `0xFFF00000`, and `0xF0000000` masks to evaluate IP ranges against 15 reserved blocks in a single branch chain.
-- **Ternary Bitwise Operations** – Employs `(ip & MASK) == CONSTANT` predicates with short‑circuit evaluation, achieving **O(1) constant‑time** classification with no loops or hash lookups.
-- **Zero‑Allocation Random Generation** – Directly constructs the 32‑bit integer from four random octets, defers string conversion only after successful validation, eliminating GC pressure from discarded private IP strings.
-- **Sub‑Microsecond Latency** – The entire generation + validation pipeline completes in **< 1 µs** on modern hardware, enabling **millions of IPs per second** at full concurrency.
+`IpGenerator` 模块是 **低开销系统设计** 的典范之作：
 
-> 🚀 This design transforms what is typically a hot‑path bottleneck into a near‑free operation, allowing the scanner to saturate network bandwidth rather than CPU.
+- **Hexadecimal Bitmask Classification** – Uses pre‑computed `0xFF000000`, `0xFFFF0000`, `0xFFF00000`, and `0xF0000000` masks to evaluate IP ranges against 15 reserved blocks in a single branch chain.  
+  **十六进制位掩码分类** – 使用预计算的 `0xFF000000`、`0xFFFF0000`、`0xFFF00000` 与 `0xF0000000` 掩码，在单一分支链中完成对 15 个保留地址段的判定。
+
+- **Ternary Bitwise Operations** – Employs `(ip & MASK) == CONSTANT` predicates with short‑circuit evaluation, achieving **O(1) constant‑time** classification with no loops or hash lookups.  
+  **三目位运算** – 采用 `(ip & MASK) == CONSTANT` 谓词与短路求值，实现 **O(1) 常数时间** 分类，无循环、无哈希查找。
+
+- **Zero‑Allocation Random Generation** – Directly constructs the 32‑bit integer from four random octets, defers string conversion only after successful validation, eliminating GC pressure from discarded private IP strings.  
+  **零分配随机生成** – 直接由四个随机字节构造 32 位整数，仅在验证通过后才进行字符串转换，彻底消除私有 IP 字符串废弃带来的 GC 压力。
+
+- **Sub‑Microsecond Latency** – The entire generation + validation pipeline completes in **< 1 µs** on modern hardware, enabling **millions of IPs per second** at full concurrency.  
+  **亚微秒级延迟** – 完整的生成 + 验证流水线在现代硬件上完成时间 **< 1 微秒**，全并发下可实现 **每秒数百万 IP** 的生成速度。
+
+> 🚀 This design transforms what is typically a hot‑path bottleneck into a near‑free operation, allowing the scanner to saturate network bandwidth rather than CPU.  
+> 🚀 这一设计将通常的热路径瓶颈转化为近乎零开销的操作，使扫描器能够饱和网络带宽而非 CPU。
 
 ## ✦ Adaptive Concurrency Algorithm / 自适应并发算法
 

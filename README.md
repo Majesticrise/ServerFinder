@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Java-21+-blue.svg" alt="Java">
   <img src="https://img.shields.io/badge/License-LGPL--2.1-green.svg" alt="License">
-  <img src="https://img.shields.io/badge/Minecraft-1.8--1.20-orange.svg" alt="Minecraft">
+  <img src="https://img.shields.io/badge/Protocols-1.8.9%20%7C%201.12.2%20%7C%201.20.1-orange.svg" alt="Minecraft Protocols">
   <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Platform">
   <a href="https://github.com/Majesticrise/ServerFinder/actions/workflows/build.yml">
     <img src="https://github.com/Majesticrise/ServerFinder/actions/workflows/build.yml/badge.svg" alt="CI Status">
@@ -10,10 +10,10 @@
 
 ## ✦ Title & Introduction / 标题与引言
 
-| English / 英文                                                                                                                                                         | 中文 / Chinese                              |
-|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------|
-| **Minecraft Server Scanner · An Elegant Distributed Probing Engine**                                                                                                 | **Minecraft 服务器扫描器 · 优雅的分布式探测引擎**         |
-| A high‑performance, self‑adaptive scanner for discovering Minecraft Java Edition servers.                                                                            | 一款高性能、自适应并发的 Minecraft Java 版服务器发现工具。     |
+| English / 英文 | 中文 / Chinese |
+|---|---|
+| **Minecraft Server Scanner · A Distributed Probing Engine** | **Minecraft 服务器扫描器 · 分布式探测引擎** |
+| A high‑performance, self‑adaptive scanner for discovering Minecraft Java Edition servers. | 一款高性能、自适应并发的 Minecraft Java 版服务器发现工具。 |
 | Supports SOCKS5 proxy pools, intelligent concurrency tuning, result deduplication, and persistent storage – designed for large‑scale public Internet reconnaissance. | 支持 SOCKS5 代理池、智能调速、结果去重与持久化，专为大规模公网探测而设计。 |
 
 ---
@@ -27,6 +27,7 @@
 - [Adaptive Concurrency Algorithm / 自适应并发算法](#-adaptive-concurrency-algorithm--自适应并发算法)
 - [Proxy Pool Mechanics / 代理池机制](#-proxy-pool-mechanics--代理池机制)
 - [Output & Deduplication / 输出与去重](#-output--deduplication--输出与去重)
+- [Known Limitations / 已知限制](#-known-limitations--已知限制)
 - [Important Notes / 注意事项](#-important-notes--注意事项)
 - [Customisation & Extensions / 扩展与定制](#-customisation--extensions--扩展与定制)
 - [CI/CD Pipeline](#-cicd-pipeline--持续集成与交付)
@@ -36,47 +37,49 @@
 
 ## ✦ Features / 功能
 
-| Feature / 功能                                  | Description / 描述                                                                                                                                                                                                                                                                                                                                                          |
-|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Hybrid Adaptive Concurrency**<br>混合式自适应并发调优 | Dynamically adjusts scanning concurrency based on discovery rate, from exponential coarse sweep to golden‑section fine tuning, automatically locking onto the optimal throughput.<br>基于发现速率动态调整扫描并发数，从指数粗扫到黄金分割细扫，自动锁定最优吞吐量。                                                                                                                                              |
-| **SOCKS5 Proxy Pool**<br>SOCKS5 代理池           | Built‑in proxy fission and GitHub public pool integration, with automatic refill, deduplication, and invalidation – effectively conceals your real IP.<br>内置代理裂变与 GitHub 公共池，自动补货、去重与失效回收，有效隐藏真实 IP。                                                                                                                                                                      |
-| **Multi‑Version Protocol Probing**<br>多协议版本探测 | Simultaneously attempts three mainstream protocol versions: 1.20.1 (763), 1.12.2 (340), and 1.8.9 (47), covering the vast majority of servers.<br>同时尝试 1.20.1、1.12.2、1.8.9 三个主流协议版本，兼容绝大多数服务器。                                                                                                                                                                            |
-| **Smart Result Management**<br>智能结果管理         | Writes results to file in real time, periodically deduplicates by the full `IP:port` line, and automatically cleans up the output file.<br>实时写入文件，定期基于 `IP:端口` 完整行去重（避免重复记录），支持输出文件自动整理。                                                                                                                                                                                  |
-| **Memory & Stability Safeguards**<br>内存与稳定性保障 | Memory water‑level monitoring with emergency throttling; network error and timeout statistics aid health assessment of the proxy pool.<br>内存水位监控，紧急限流；网络错误与超时统计，辅助判断代理池健康。                                                                                                                                                                                                |
-| **Dual Display Modes**<br>双模式展示               | Scrollable list mode and real‑time speed summary mode, giving you clear visibility into scanning progress.<br>滚动列表模式与实时状态概览模式，清晰掌握扫描进度。                                                                                                                                                                                                                                   |
-| **Ultra‑Fast IP Generation**<br>极速 IP 生成引擎    | Employs **Hexadecimal Bitmasks** and **Bitwise & Equality Predicates** for **O(1) constant‑time** public IP classification, eliminating string parsing overhead and enabling sub‑microsecond generation with zero intermediate allocations.<br>采用 **十六进制位掩码** 与 **位运算短路求值** 实现 **O(1) 常数时间** 的公网 IP 分类判定，彻底消除字符串解析开销，**仅在验证通过后才进行字符串转换**，使无效随机 IP 的分配开销降至最低，实现亚微秒级核心判定延迟。 |
+| Feature / 功能 | Description / 描述 |
+|---|---|
+| **Adaptive Concurrency Tuning**<br>自适应并发调优 | Dynamically adjusts scanning concurrency based on discovery rate, using a heuristic search to approximate the optimal throughput under current network conditions.<br>基于发现速率动态调整扫描并发数，采用启发式搜索在当前网络条件下逼近最优吞吐量。 |
+| **SOCKS5 Proxy Pool**<br>SOCKS5 代理池 | Built‑in proxy pool with automatic refill, deduplication, and invalidation – effectively conceals your real IP.<br>内置代理池，自动补货、去重与失效回收，有效隐藏真实 IP。 |
+| **Multi‑Version Protocol Probing**<br>多协议版本探测 | Attempts three protocol versions: 1.20.1 (763), 1.12.2 (340), and 1.8.9 (47).<br>尝试 1.20.1、1.12.2、1.8.9 三个协议版本。 |
+| **Smart Result Management**<br>智能结果管理 | Writes results to file in real time, periodically deduplicates by the full `IP:port` line.<br>实时写入文件，定期基于 `IP:端口` 完整行去重。 |
+| **Memory & Stability Safeguards**<br>内存与稳定性保障 | Memory water‑level monitoring with emergency throttling; network error and timeout statistics aid health assessment of the proxy pool.<br>内存水位监控，紧急限流；网络错误与超时统计，辅助判断代理池健康。 |
+| **Dual Display Modes**<br>双模式展示 | Scrollable list mode and real‑time speed summary mode, giving you clear visibility into scanning progress.<br>滚动列表模式与实时状态概览模式，清晰掌握扫描进度。 |
+| **Fast IP Generation**<br>快速 IP 生成 | Employs **Hexadecimal Bitmasks** and **Bitwise & Equality Predicates** for **O(1) constant‑time** public IP classification, eliminating string parsing overhead and deferring string conversion until after validation.<br>采用 **十六进制位掩码** 与 **位运算短路求值** 实现 **O(1) 常数时间** 的公网 IP 分类判定，避免字符串解析开销，**仅在验证通过后才进行字符串转换**。 |
+
 ---
 
 ## ✦ Architecture Overview / 架构概览
 
-| Component / 组件                      | Responsibility (EN) / 职责（英文）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Responsibility (CN) / 职责（中文）                                                                                                                                         |
-|-------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **ScanOrchestrator**<br>扫描调度器       | Core scheduler that manages adaptive concurrency and task lifecycles, orchestrates the entire scanning process.                                                                                                                                                                                                                                                                                                                                                                                                        | 核心调度器，管理自适应并发与任务生命周期，协调整个扫描流程。                                                                                                                                       |
-| **ScanWorker**<br>工作线程              | A virtual thread per IP probe; performs port checking and Minecraft ping, either through a proxy or directly.                                                                                                                                                                                                                                                                                                                                                                                                          | 每个虚拟线程执行一个 IP 的探测任务，进行端口检查与 Minecraft 握手，支持代理或直连。                                                                                                                    |
-| **ProxyManager**<br>代理管理器           | Maintains the proxy pool, auto‑crawls new proxies via fission, pulls pre‑validated lists from GitHub, and schedules periodic refill tasks via its internal scheduler.                                                                                                                                                                                                                                                                                                                                                  | 维护代理池，通过裂变自动爬取新代理，从 GitHub 拉取预验证列表，并通过内部调度器执行定期补货任务。                                                                                                                 |
-| **ResultConsumer**<br>结果消费者         | Consumes scan results from the queue, writes them to the output file, and performs periodic IP‑based deduplication with read‑write lock protection.                                                                                                                                                                                                                                                                                                                                                                    | 从队列中消费扫描结果，写入输出文件，并定期执行基于 `IP:端口` 的去重（使用读写锁保护）。                                                                                                                      |
-| **NetworkMonitor**<br>网络监控器         | Tracks errors and timeouts within a sliding time window, providing real‑time feedback for proxy pool health assessment.                                                                                                                                                                                                                                                                                                                                                                                                | 统计滑动时间窗口内的错误与超时，为代理池健康提供实时反馈。                                                                                                                                        |
-| **AdaptiveSemaphore**<br>自适应信号量     | A dynamically adjustable semaphore that controls the number of concurrent tasks, enabling smooth concurrency changes.                                                                                                                                                                                                                                                                                                                                                                                                  | 动态可调的信号量，控制并发任务数，支持并发量的平滑调整。                                                                                                                                         |
-| **IpGenerator**<br>IP 生成器           | Implements a **pure‑integer classification pipeline** – constructs 32‑bit IPs from random octets, evaluates against **pre‑compiled hexadecimal constants** via bitwise predicates, and returns the string representation **only upon successful validation**. String conversion is deferred until after validation, which entirely avoids heap allocations for invalid IPs, making the hot path **GC‑friendly** (rather than zero‑allocation); it sustains millions of iterations per second with minimal GC overhead. | 实现 **纯整数分类流水线** – 由随机字节直接构造 32 位 IP，通过 **预编译十六进制常量** 与位运算谓词进行判定，**仅在验证通过后**才返回字符串表示。字符串转换被延迟到验证之后，完全避免了无效 IP 的堆内存分配，使热路径保持 **GC 友好**（而非绝对零分配）；可维持每秒数百万次迭代且对 GC 压力极小。 |
-| **MinecraftPinger**<br>Minecraft 探针 | Performs the Minecraft server handshake across multiple protocol versions (1.20.1, 1.12.2, 1.8.9) to verify server presence.                                                                                                                                                                                                                                                                                                                                                                                           | 跨多个协议版本（1.20.1、1.12.2、1.8.9）执行 Minecraft 服务器握手，验证服务器存在性。                                                                                                             |
-| **PortChecker**<br>端口检查器            | Tests TCP port availability using a standard socket connection, recording timeouts and network errors for monitoring.                                                                                                                                                                                                                                                                                                                                                                                                  | 使用标准 Socket 连接测试 TCP 端口可用性，记录超时与网络错误以供监控。                                                                                                                            |
-| **Config**<br>配置对象                  | Holds all configurable parameters including scanning, adaptive tuning, and deduplication settings, serialized to/from JSON.                                                                                                                                                                                                                                                                                                                                                                                            | 持有所有可配置参数，包括扫描、自适应调优与去重设置，支持 JSON 序列化与反序列化。                                                                                                                          |
-| **Main**<br>主程序                     | Entry point that orchestrates configuration loading, interactive setup, and lifecycle management of all components.                                                                                                                                                                                                                                                                                                                                                                                                    | 程序入口，负责配置加载、交互式参数设置以及所有组件的生命周期管理。                                                                                                                                    |
+| Component / 组件                      | Responsibility (EN) / 职责（英文）                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Responsibility (CN) / 职责（中文）                                                                                                                              |
+|-------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **ScanOrchestrator**<br>扫描调度器       | Core scheduler that manages adaptive concurrency and task lifecycles, orchestrates the entire scanning process.                                                                                                                                                                                                                                                                                                                                                                 | 核心调度器，管理自适应并发与任务生命周期，协调整个扫描流程。                                                                                                                            |
+| **ScanWorker**<br>工作线程              | A virtual thread per IP probe; performs port checking and Minecraft ping, either through a proxy or directly.                                                                                                                                                                                                                                                                                                                                                                   | 每个虚拟线程执行一个 IP 的探测任务，进行端口检查与 Minecraft 握手，支持代理或直连。                                                                                                         |
+| **ProxyManager**<br>代理管理器           | Maintains the proxy pool, auto‑crawls new proxies via fission, pulls pre‑validated lists from GitHub, and schedules periodic refill tasks via its internal scheduler.                                                                                                                                                                                                                                                                                                           | 维护代理池，通过裂变自动爬取新代理（若池中代理大面积失效，补货可能受阻），从 GitHub 拉取预验证列表，并通过内部调度器执行定期补货任务。                                                                                   |
+| **ResultConsumer**<br>结果消费者         | Consumes scan results from the queue, writes them to the output file, and performs periodic IP‑based deduplication with read‑write lock protection.                                                                                                                                                                                                                                                                                                                             | 从队列中消费扫描结果，写入输出文件，并定期执行基于 `IP:端口` 的去重（使用读写锁保护）。                                                                                                           |
+| **NetworkMonitor**<br>网络监控器         | Tracks errors and timeouts within a sliding time window, providing real‑time feedback for proxy pool health assessment.                                                                                                                                                                                                                                                                                                                                                         | 统计滑动时间窗口内的错误与超时，为代理池健康提供实时反馈。                                                                                                                             |
+| **AdaptiveSemaphore**<br>自适应信号量     | A dynamically adjustable semaphore that controls the number of concurrent tasks, enabling smooth concurrency changes.                                                                                                                                                                                                                                                                                                                                                           | 动态可调的信号量，控制并发任务数，支持并发量的平滑调整。                                                                                                                              |
+| **IpGenerator**<br>IP 生成器           | Implements a **pure‑integer classification pipeline** – constructs 32‑bit IPs from random octets, evaluates against **pre‑compiled hexadecimal constants** via bitwise predicates, and returns the string representation **only upon successful validation**. String conversion is deferred until after validation, which avoids heap allocations for invalid IPs, making the hot path **GC‑friendly**; it sustains millions of iterations per second with minimal GC overhead. | 实现 **纯整数分类流水线** – 由随机字节直接构造 32 位 IP，通过 **预编译十六进制常量** 与位运算谓词进行判定，**仅在验证通过后**才返回字符串表示。字符串转换被延迟到验证之后，避免了无效 IP 的堆内存分配，使热路径保持 **GC 友好**；可维持每秒数百万次迭代且对 GC 压力极小。 |
+| **MinecraftPinger**<br>Minecraft 探针 | Performs the Minecraft server handshake across multiple protocol versions (1.20.1, 1.12.2, 1.8.9) to verify server presence.                                                                                                                                                                                                                                                                                                                                                    | 跨多个协议版本（1.20.1、1.12.2、1.8.9）执行 Minecraft 服务器握手，验证服务器存在性。                                                                                                  |
+| **PortChecker**<br>端口检查器            | Tests TCP port availability using a standard socket connection, recording timeouts and network errors for monitoring.                                                                                                                                                                                                                                                                                                                                                           | 使用标准 Socket 连接测试 TCP 端口可用性，记录超时与网络错误以供监控。                                                                                                                 |
+| **Config**<br>配置对象                  | Holds all configurable parameters including scanning, adaptive tuning, and deduplication settings, serialized to/from JSON.                                                                                                                                                                                                                                                                                                                                                     | 持有所有可配置参数，包括扫描、自适应调优与去重设置，支持 JSON 序列化与反序列化。                                                                                                               |
+| **Main**<br>主程序                     | Entry point that orchestrates configuration loading, interactive setup, and lifecycle management of all components.                                                                                                                                                                                                                                                                                                                                                             | 程序入口，负责配置加载、交互式参数设置以及所有组件的生命周期管理。                                                                                                                         |
+
 ## ✦ Configuration Details / 配置详解
 
 Key fields in `scanner_config.json`:  
 `scanner_config.json` 核心字段：
 
-| Field / 字段              | Description / 说明                                                                     |
-|-------------------------|--------------------------------------------------------------------------------------|
-| `total`                 | Total IPs to scan; `-1` means continuous scanning / 扫描 IP 总数，`-1` 表示持续扫描             |
-| `concurrency`           | Initial concurrency level / 初始并发数                                                    |
-| `timeout`               | TCP connection timeout (seconds) / TCP 连接超时（秒）                                       |
-| `port`                  | Target port / 目标端口                                                                   |
-| `useProxy`              | Enable SOCKS5 proxy pool / 是否使用代理池                                                   |
-| `adaptive`              | Enable adaptive concurrency / 是否启用自适应并发                                              |
-| `enableFileDedup`       | Periodically deduplicate output file by `IP:port` line / 是否定期对输出文件去重（基于 `IP:端口` 完整行） |
-| `cachedBestConcurrency` | Best concurrency from previous runs (auto‑saved) / 历史最优并发（自动保存）                      |
+| Field / 字段 | Description / 说明 |
+|---|---|
+| `total` | Total IPs to scan; `-1` means continuous scanning / 扫描 IP 总数，`-1` 表示持续扫描 |
+| `concurrency` | Initial concurrency level / 初始并发数 |
+| `timeout` | TCP connection timeout (seconds) / TCP 连接超时（秒） |
+| `port` | Target port / 目标端口 |
+| `useProxy` | Enable SOCKS5 proxy pool / 是否使用代理池 |
+| `adaptive` | Enable adaptive concurrency / 是否启用自适应并发 |
+| `enableFileDedup` | Periodically deduplicate output file by `IP:port` line / 是否定期对输出文件去重（基于 `IP:端口` 完整行） |
+| `cachedBestConcurrency` | Best concurrency from previous runs (auto‑saved) / 历史最优并发（自动保存） |
 
 For a complete list, refer to the comments in `Config.java`.  
 完整参数请参考 `Config.java` 中的注释。
@@ -84,9 +87,9 @@ For a complete list, refer to the comments in `Config.java`.
 
 ## ✦ IP Generation / IP 生成引擎
 
-The `IpGenerator` module is a masterpiece of **low‑overhead systems design**:
+The `IpGenerator` module is designed for **low‑overhead IP classification**:
 
-`IpGenerator` 模块是 **低开销系统设计** 的典范之作：
+`IpGenerator` 模块专为 **低开销 IP 分类** 而设计：
 
 - **Hexadecimal Bitmask Classification** – Uses pre‑computed masks (`0xFF000000`, `0xFFFF0000`, `0xFFF00000`, `0xF0000000`) to evaluate IP ranges against 15 reserved blocks in a single branch chain.  
   **十六进制位掩码分类** – 使用预计算的 `0xFF000000`、`0xFFFF0000`、`0xFFF00000` 与 `0xF0000000` 掩码，在单一分支链中完成对 15 个保留地址段的判定。
@@ -95,13 +98,13 @@ The `IpGenerator` module is a masterpiece of **low‑overhead systems design**:
   **位运算短路判定** – 采用 `(ip & MASK) == CONSTANT` 谓词与短路求值，实现 **O(1) 常数时间** 分类，无循环、无哈希查找。
 
 - **Deferred String Conversion** – Directly constructs the 32‑bit integer from four random octets; string conversion is deferred until after successful validation, eliminating GC pressure from discarded private IP strings and keeping the hot path GC‑friendly.  
-  **延迟字符串转换** – 直接由四个随机字节构造 32 位整数；**仅在验证通过后才进行字符串转换**，彻底消除无效私有 IP 的字符串分配开销，使热路径保持 GC 友好。
+  **延迟字符串转换** – 直接由四个随机字节构造 32 位整数；**仅在验证通过后才进行字符串转换**，避免无效私有 IP 的字符串分配开销，使热路径保持 GC 友好。
 
 - **Sub‑Microsecond Core Latency** – The raw integer generation and bitmask validation stage completes in **< 1 µs** on modern hardware (*benchmark applies to the CPU‑bound classification stage; overall scanning throughput is network‑bound and depends on proxy responsiveness*).  
   **亚微秒级核心延迟** – 原始整数生成与位掩码验证阶段在现代硬件上完成时间 **< 1 微秒**（*该指标仅针对 CPU 分类环节；整体扫描吞吐量受限于网络带宽与代理响应速度*）。
 
-> 🚀 This design transforms what is typically a hot‑path bottleneck into a near‑free operation, allowing the scanner to saturate network bandwidth rather than CPU.  
-> 🚀 这一设计将通常的热路径瓶颈转化为近乎零开销的操作，使扫描器能够饱和网络带宽而非 CPU。
+> 🚀 This design reduces CPU overhead in the IP generation stage, allowing the scanner to focus more on network I/O.  
+> 🚀 这一设计降低了 IP 生成阶段的 CPU 开销，使扫描器能够将更多资源投入网络 I/O。
 
 ## ✦ Adaptive Concurrency Algorithm / 自适应并发算法
 
@@ -109,16 +112,19 @@ The `IpGenerator` module is a masterpiece of **low‑overhead systems design**:
    Starts from the maximum concurrency, decreases by `expFactor` each step, tests about 12 points, and selects two best candidates.  
    从最大并发开始，以 `expFactor` 衰减，测试 12 个点，选出两个最优候选。
 
-2. **Golden‑Section Fine Tuning / 黄金分割细扫**  
-   Constructs an interval around the two best points and uses golden‑section search (up to 25 iterations) to efficiently converge to a local optimum under stable network conditions.  
-   在最优两点附近构建区间，用黄金分割法迭代 25 次，在稳定网络环境下高效逼近局部最优并发。
+2. **Heuristic Fine Tuning / 启发式细调**  
+   Constructs an interval around the two best points and uses an iterative search (up to 25 iterations) to efficiently converge to a local optimum under stable network conditions.  
+   在最优两点附近构建区间，通过迭代搜索（最多 25 次）在稳定网络环境下高效逼近局部最优并发。
 
 3. **Lock & Validate / 锁定与验证**  
    Locks onto the best concurrency, then performs a three‑point validation every 10 minutes; if performance degrades, it restarts the search.  
    锁定最佳并发，每 10 分钟用三点采样验证，若性能下降则重新触发搜索。
 
-The evaluation metric is `throughput × discovery rate`; if no servers are found, a penalty is applied to discourage idle high concurrency.  
-测试指标 = `吞吐量 × 发现速率`，无发现时给予惩罚，避免高并发空转。
+The evaluation metric is `throughput × discovery rate`; if no servers are found, a penalty is applied to discourage idle high concurrency. The penalty coefficient increases progressively with the duration of idle scanning, encouraging the algorithm to quickly retreat from ineffective high‑concurrency states.  
+测试指标 = `吞吐量 × 发现速率`，无发现时给予惩罚，避免高并发空转。惩罚系数随空转时长递增，促使算法快速退出无效的高并发状态。
+
+> **Note**: This heuristic works best in relatively stable network environments. In highly dynamic networks with significant latency variation, the search may be triggered more frequently.  
+> **注意**：该启发式算法在相对稳定的网络环境中效果最佳。在延迟波动较大的动态网络中，搜索可能被更频繁地触发。
 
 ## ✦ Proxy Pool Mechanics / 代理池机制
 
@@ -131,7 +137,7 @@ The evaluation metric is `throughput × discovery rate`; if no servers are found
 - **Lazy Validation / 惰性验证**: Proxies are validated only when used; valid ones are returned to the pool, invalid ones are discarded.  
   代理仅在实际使用中验证，有效则归还，无效自动丢弃。
 
-- **Rate‑Limited Fission / 裂变限流**: Fission requests are rate‑limited to a maximum of 2 concurrent to avoid triggering API rate limits.
+- **Rate‑Limited Fission / 裂变限流**: Fission requests are rate‑limited to a maximum of 2 concurrent to avoid triggering API rate limits.  
   裂变请求限制最多 2 个并发，避免触发 API 频率限制。
 
 - **Capacity Limit / 容量上限**: Pool size is capped at 1500 to prevent memory bloat.  
@@ -143,18 +149,24 @@ The evaluation metric is `throughput × discovery rate`; if no servers are found
   发现的服务器以 `IP:端口` 格式追加至 `found_servers.txt`。
 
 - Every 10 minutes (configurable), the file is deduplicated by the full `IP:port` line – only the first occurrence of each unique entry is kept.  
- 每 10 分钟（可配置）自动去重，同一 `IP:端口` 只保留首次记录。
+  每 10 分钟（可配置）自动去重，同一 `IP:端口` 只保留首次记录。
 
 - On program exit, the current best concurrency is saved, allowing faster convergence on the next start.  
   程序退出时自动保存当前最优并发值，下次启动可快速收敛。
 
-## ✦ Quick Start / 快速开始
+## ✦ Known Limitations / 已知限制
 
-### Requirements / 环境要求
-- **Java 21+** (virtual thread support / 虚拟线程支持)
-- Recommended: 2 GB+ RAM, outbound bandwidth ≥ 10 Mbps  
-  建议 2GB 以上内存，公网出口带宽 ≥ 10 Mbps
+> [!NOTE]
+> **Protocol Coverage / 协议覆盖**：This scanner currently supports only three protocol versions (1.20.1, 1.12.2, 1.8.9). Servers running other versions (e.g., 1.16.5, 1.15.2) will not be detected. See [Customisation & Extensions](#-customisation--extensions--扩展与定制) for how to add more versions.  
+> **当前仅支持三个协议版本（1.20.1、1.12.2、1.8.9），运行其他版本的服务器将无法被检测到。参见[扩展与定制](#-customisation--extensions--扩展与定制)了解如何添加更多版本。**
 
+> [!NOTE]
+> **Adaptive Algorithm / 自适应算法**：The concurrency tuning algorithm uses a heuristic search (not a rigorous mathematical optimum) and performs best in stable network environments. In highly variable networks, manual concurrency configuration may yield better results.  
+> **并发调优算法采用启发式搜索（非严格数学最优解），在稳定网络环境中效果最佳。在高度波动的网络中，手动配置并发可能获得更好的效果。**
+
+> [!NOTE]
+> **Deduplication I/O / 去重 I/O**：File‑based deduplication performs a full‑file scan every cycle. With very large result files (100,000+ lines), this may cause brief I/O pauses.  
+> **基于文件的去重每周期执行一次全文件扫描。结果文件非常大时（10 万行以上），可能引起短暂的 I/O 卡顿。**
 
 ## ✦ Important Notes / 注意事项
 
@@ -181,10 +193,10 @@ The evaluation metric is `throughput × discovery rate`; if no servers are found
 This project leverages **GitHub Actions** for automated builds, testing, and releases.  
 本项目使用 **GitHub Actions** 实现自动化构建、测试与发布。
 
-| Workflow / 工作流    | Trigger / 触发条件             | Purpose / 目的                                            |
-|-------------------|----------------------------|---------------------------------------------------------|
-| **PR Validation** | Pull Request to `main`     | Compile, test, and validate code quality / 编译、测试与代码质量验证 |
-| **Release Build** | Push to `main` or tag push | Build JAR and attach to release / 构建 JAR 并关联至 Release   |
+| Workflow / 工作流 | Trigger / 触发条件 | Purpose / 目的 |
+|---|---|---|
+| **PR Validation** | Pull Request to `main` | Compile, test, and validate code quality / 编译、测试与代码质量验证 |
+| **Release Build** | Push to `main` or tag push | Build JAR and attach to release / 构建 JAR 并关联至 Release |
 
 
 ## ✦ Customisation & Extensions / 扩展与定制
@@ -205,5 +217,5 @@ This project is licensed under the **GNU Lesser General Public License v2.1** �
 
 ---
 
-**Elegantly explore every corner of the blocky universe.** 🚀  
-**优雅地探索方块世界的每一处角落。** 🚀
+**Explore every corner of the blocky universe.** 🚀  
+**探索方块世界的每一处角落。** 🚀

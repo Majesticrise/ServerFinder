@@ -214,10 +214,16 @@ public class ScanOrchestrator {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } finally {
+                executor.shutdown();
+                try {
+                    // 等所有已提交的 worker 跑完
+                    executor.awaitTermination(Long.MAX_VALUE, TimeUnit.DAYS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
                 try {
                     resultQueue.put(ScanResult.POISON_PILL);
                 } catch (InterruptedException ignored) {}
-                executor.shutdown();
                 if (monitorThread != null) {
                     monitorThread.interrupt();
                 }

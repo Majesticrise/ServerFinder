@@ -26,18 +26,24 @@ public class ScanWorker implements Runnable {
 
     @Override
     public void run() {
-        if (stopFlag.get()) return;
         NetworkMonitor.getInstance().recordAttempt();
-
-        int ip = IpGenerator.randomPublicIpInt();
-        ScanResult result;
-
-        if (config.useProxy) {
-            result = scanViaProxy(ip);
-        } else {
-            result = scanDirect(ip);
+        int ip;
+        try {
+            ip = IpGenerator.randomPublicIpInt();
+        } catch (Exception e) {
+            // 几乎不可能，防御性
+            ip = 0;
         }
-
+        ScanResult result;
+        try {
+            if (config.useProxy) {
+                result = scanViaProxy(ip);
+            } else {
+                result = scanDirect(ip);
+            }
+        } catch (Throwable t) {
+            result = new ScanResult(ip, false, port);
+        }
         resultConsumer.accept(result);
     }
 

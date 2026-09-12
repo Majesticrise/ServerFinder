@@ -98,13 +98,17 @@ public class NetworkMonitor {
 
     // 每秒移动窗口：将当前秒指针向前移动，并清零旧桶（实际上我们不清零，而是覆盖）
     private void shift() {
-        int old = currentSecond.getAndUpdate(h -> (h + 1) % BUCKET_COUNT);
-        long droppedErrors = errorBuckets.getAndSet(old, 0);
-        long droppedTimeouts = timeoutBuckets.getAndSet(old, 0);
-        long droppedAttempts = attemptBuckets.getAndSet(old, 0);
-        totalErrors.addAndGet(-droppedErrors);
-        totalTimeouts.addAndGet(-droppedTimeouts);
-        totalAttempts.addAndGet(-droppedAttempts);
+        // 一次性把 old 的值读出来，再清空
+        // 允许瞬间"读到属于当前秒的少量计数" —— 只是小偏差，不是丢失
+        int old = currentSecond.get();
+        long e = errorBuckets.getAndSet(old, 0);
+        long t = timeoutBuckets.getAndSet(old, 0);
+        long a = attemptBuckets.getAndSet(old, 0);
+        totalErrors.addAndGet(-e);
+        totalTimeouts.addAndGet(-t);
+        totalAttempts.addAndGet(-a);
+        // 最后才推进指针
+        currentSecond.set((old + 1) % BUCKET_COUNT);
     }
 
     // 原有的其他方法（如 isNetworkConstrained）可基于新方法实现

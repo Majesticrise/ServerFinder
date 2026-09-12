@@ -4,7 +4,7 @@ public class Config {
     // ---- 基础扫描参数 ----
     public int total = 102400;
     public int concurrency = 10240;
-    public double timeout = 2.5;
+    public double timeout = 1.5;
     public int port = 25565;
     public boolean useSyn = false;
     public String outputFile = "found_servers.txt";

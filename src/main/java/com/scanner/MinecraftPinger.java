@@ -11,16 +11,26 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.*;
 
 public final class MinecraftPinger {
-    // 三个主流版本：1.20.1(763), 1.12.2(340), 1.8.9(47)
-    private static final int[] PROTOCOL_VERSIONS = {763, 340, 47};
 
-    // 共享虚拟线程执行器，避免每次创建新对象
-    private static final ExecutorService PINGER_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
+    /**
+     * Server List Ping 的 protocolVersion 在 status 查询里只被原样回显，
+     * 服务器不做版本校验，任何现代 MC 服务器都会返回相同 JSON。
+     */
+    private static final int DEFAULT_PROTOCOL = 763;   // 1.20.1
+
+    /** 单个包长度上限：packetId(1) + jsonLenVarInt(3) + json(131072) + 余量 */
+    private static final int MAX_PACKET_LENGTH = 131_080;
+
+    /** JSON 长度上限 */
+    private static final int MAX_JSON_LENGTH = 131_072;
+
+    private MinecraftPinger() {}
+
+    // ================================================================
+    // 对外 API
+    // ================================================================
 
     public static boolean isMinecraftServer(int ip, int port, double timeoutSec) {
         return isMinecraftServer(IpGenerator.ipToString(ip), port, timeoutSec, null);
@@ -29,87 +39,83 @@ public final class MinecraftPinger {
     public static boolean isMinecraftServer(int ip, int port, double timeoutSec, Proxy proxy) {
         return isMinecraftServer(IpGenerator.ipToString(ip), port, timeoutSec, proxy);
     }
-    // ---------- 直连（兼容原接口） ----------
+
     public static boolean isMinecraftServer(String ip, int port, double timeoutSec) {
         return isMinecraftServer(ip, port, timeoutSec, null);
     }
 
-    // ---------- 支持代理 ----------
     public static boolean isMinecraftServer(String ip, int port, double timeoutSec, Proxy proxy) {
-        // 创建 3 个并发任务，同时向不同协议版本发起握手
-        List<Callable<Boolean>> tasks = new ArrayList<>();
-        for (int ver : PROTOCOL_VERSIONS) {
-            tasks.add(() -> pingModern(ip, port, timeoutSec, ver, proxy));
-        }
-
-        try {
-            // 使用共享执行器，invokeAny 会自动管理任务生命周期
-            return PINGER_EXECUTOR.invokeAny(tasks, (long) (timeoutSec * 1000), TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            return false; // 超时无响应
-        } catch (Exception e) {
-            return false; // 全部失败
-        }
+        return pingModern(ip, port, timeoutSec, DEFAULT_PROTOCOL, proxy);
     }
 
-    // ---------- 核心探测 ----------
-    private static boolean pingModern(String ip, int port, double timeoutSec, int protocolVersion, Proxy proxy) {
+    // ================================================================
+    // 核心探测
+    // ================================================================
+
+    private static boolean pingModern(String ip, int port, double timeoutSec,
+                                      int protocolVersion, Proxy proxy) {
+        // ---- 1. timeout 校验：防止 (int) 转换后变成 0 导致无限阻塞 ----
+        if (timeoutSec <= 0) return false;
+        long ms = Math.round(timeoutSec * 1000);
+        if (ms < 1) ms = 1;
+        if (ms > Integer.MAX_VALUE) ms = Integer.MAX_VALUE;
+        int timeoutMillis = (int) ms;
+
         try (Socket socket = proxy == null ? new Socket() : new Socket(proxy)) {
-            int timeoutMillis = (int) (timeoutSec * 1000);
             socket.connect(new InetSocketAddress(ip, port), timeoutMillis);
             socket.setSoTimeout(timeoutMillis);
 
             DataOutputStream out = new DataOutputStream(socket.getOutputStream());
             DataInputStream in = new DataInputStream(socket.getInputStream());
 
-            // --- Handshake ---
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            // ---- Handshake ----
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(32);
             DataOutputStream handshakeOut = new DataOutputStream(baos);
-            writeVarInt(handshakeOut, 0);                 // 包 ID: Handshake
-            writeVarInt(handshakeOut, protocolVersion);   // 协议版本
-            writeString(handshakeOut, ip);                // 地址
-            handshakeOut.writeShort(port);                // 端口
-            writeVarInt(handshakeOut, 1);                 // 状态: 1 (Status)
+            writeVarInt(handshakeOut, 0);                 // Packet ID: Handshake
+            writeVarInt(handshakeOut, protocolVersion);   // Protocol Version
+            writeString(handshakeOut, ip);                // Server Address
+            handshakeOut.writeShort(port);                // Server Port
+            writeVarInt(handshakeOut, 1);                 // Next State: 1 (Status)
             byte[] handshakeData = baos.toByteArray();
             writeVarInt(out, handshakeData.length);
             out.write(handshakeData);
             out.flush();
 
-            // --- Status Request ---
+            // ---- Status Request ----
             baos.reset();
             DataOutputStream requestOut = new DataOutputStream(baos);
-            writeVarInt(requestOut, 0);                   // 包 ID: Request
+            writeVarInt(requestOut, 0);                   // Packet ID: Request
             byte[] requestData = baos.toByteArray();
             writeVarInt(out, requestData.length);
             out.write(requestData);
             out.flush();
 
-            // --- 读取响应（修复点） ---
-            // 1. 读取整个数据包长度（VarInt）- 用于校验，但不强制使用
+            // ---- 读响应 ----
+            // 1. 包总长
             int packetLength = readVarInt(in);
-            if (packetLength < 2) return false;          // 至少包含 packetId 和 JSON 长度
+            if (packetLength < 2 || packetLength > MAX_PACKET_LENGTH) return false;
 
-            // 2. 读取 packet ID（必须为 0）
+            // 2. Packet ID（必须为 0）
             int packetId = readVarInt(in);
             if (packetId != 0) return false;
 
-            // 3. 读取 JSON 字符串长度（VarInt）
+            // 3. JSON 长度
             int jsonLength = readVarInt(in);
-            if (jsonLength < 2 || jsonLength > 131072) return false;
+            if (jsonLength < 2 || jsonLength > MAX_JSON_LENGTH) return false;
 
-            // 4. 按长度读取 JSON 字符串
+            // 4. JSON 内容
             byte[] jsonBytes = new byte[jsonLength];
             in.readFully(jsonBytes);
             String json = new String(jsonBytes, StandardCharsets.UTF_8);
 
-            // 5. 快速预检（避免无效 JSON 解析）
-            if (json.length() < 20 ||
-                    !json.contains("\"version\"") ||
-                    !json.contains("\"players\"")) {
+            // 5. 快速预检
+            if (json.length() < 20
+                    || !json.contains("\"version\"")
+                    || !json.contains("\"players\"")) {
                 return false;
             }
 
-            // 6. 精确解析并校验类型
+            // 6. 精确解析
             JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
             return obj.has("version");
 
@@ -118,7 +124,10 @@ public final class MinecraftPinger {
         }
     }
 
-    // ---------- VarInt / String 工具 ----------
+    // ================================================================
+    // VarInt / String 工具
+    // ================================================================
+
     private static void writeVarInt(DataOutputStream out, int value) throws IOException {
         do {
             int temp = value & 0x7F;
@@ -136,7 +145,10 @@ public final class MinecraftPinger {
             b = in.readByte();
             result |= (b & 0x7F) << shift;
             shift += 7;
-            if (shift > 35) throw new IOException("VarInt too long");
+            // 合法 VarInt 最多 5 字节。读满 5 字节后若还有 continuation bit，立即报错。
+            if (shift >= 35 && (b & 0x80) != 0) {
+                throw new IOException("VarInt too long");
+            }
         } while ((b & 0x80) != 0);
         return result;
     }

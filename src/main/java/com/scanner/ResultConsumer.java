@@ -4,19 +4,11 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.IntSupplier;
 
 public class ResultConsumer implements Runnable {
@@ -33,12 +25,20 @@ public class ResultConsumer implements Runnable {
     private int lineCount = 0;
     private BufferedWriter fileWriter = null;
     private int pendingWrites = 0;
+
+
     private static final int FLUSH_THRESHOLD = 1;
 
-    private static final String CLEAR_SCREEN = "\033[H\033[2J";
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    /** 内存去重：key = (ip << 16) | (port & 0xFFFF)。百万条 ~ 50 MB。 */
+    private final Set<Long> seen = ConcurrentHashMap.newKeySet();
 
-    private final ReentrantReadWriteLock fileLock = new ReentrantReadWriteLock();
+    private static final String CLEAR_SCREEN = "\033[H\033[2J";
+    private final ScheduledExecutorService scheduler =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "ResultConsumer-Reporter");
+                t.setDaemon(true);
+                return t;
+            });
 
     public ResultConsumer(Config config, BlockingQueue<ScanResult> queue, AtomicBoolean stopFlag,
                           IntSupplier activeTasksSupplier, IntSupplier proxyTaskSupplier,
@@ -60,15 +60,6 @@ public class ResultConsumer implements Runnable {
             } catch (IOException e) {
                 System.err.println("无法打开输出文件: " + e.getMessage());
             }
-        }
-
-        if (config.enableFileDedup && config.fileDedupIntervalSeconds > 0 && config.outputFile != null) {
-            deduplicateFile();
-            scheduler.scheduleAtFixedRate(this::deduplicateFile,
-                    config.fileDedupIntervalSeconds,
-                    config.fileDedupIntervalSeconds,
-                    TimeUnit.SECONDS);
-            System.out.println("[去重] 已启动，间隔 " + config.fileDedupIntervalSeconds + " 秒");
         }
     }
 
@@ -103,31 +94,17 @@ public class ResultConsumer implements Runnable {
         scannedCount++;
         orchestrator.incrementCompleted();
 
-        long elapsed = System.currentTimeMillis() - startTime;
-        double speed = elapsed > 0 ? scannedCount / (elapsed / 1000.0) : 0.0;
-
-        if (config.displayMode == 1) {
-            if (result.ip() == null) {
-                outputLine("[" + scannedCount + "] " + result.port() + " - 端口未响应或扫描失败，当前速度 " +
-                        String.format("%.1f", speed) + " IP/s");
-            } else if (result.isMinecraft()) {
-                foundCount++;
-                orchestrator.incrementFound();
-                String line = "[" + scannedCount + "] " + result.ip() + ":" + result.port() + " - 发现 Minecraft 服务器！";
-                outputLine(line);
-                saveResult(result);
-            } else {
-                outputLine("[" + scannedCount + "] " + result.ip() + ":" + result.port() + " - 仅端口开放，当前速度 " +
-                        String.format("%.1f", speed) + " IP/s");
-            }
-        } else {
-            if (result.isMinecraft()) {
-                foundCount++;
-                orchestrator.incrementFound();
-                String line = "[" + scannedCount + "] " + result.ip() + ":" + result.port() + " - 发现 Minecraft 服务器！";
-                outputLine(line);
-                saveResult(result);
-            }
+        if (result.isMinecraft()) {
+            foundCount++;
+            orchestrator.incrementFound();
+            outputLine("[" + scannedCount + "] " + result.ipString() + ":" + result.port()
+                    + " - 发现 Minecraft 服务器！");
+            saveResult(result);
+        } else if (config.displayMode == 1) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            double speed = elapsed > 0 ? scannedCount / (elapsed / 1000.0) : 0.0;
+            outputLine("[" + scannedCount + "] " + result.ipString() + ":" + result.port()
+                    + " - 仅端口开放，当前速度 " + String.format("%.1f", speed) + " IP/s");
         }
     }
 
@@ -161,28 +138,31 @@ public class ResultConsumer implements Runnable {
         System.out.flush();
     }
 
+    /**
+     * 内存去重 + 写文件。单线程调用（只有 consumer 线程会走到这里），无需加锁。
+     */
     private void saveResult(ScanResult result) {
-        if (fileWriter == null || result.ip() == null) return;
+        if (fileWriter == null) return;
 
-        fileLock.writeLock().lock();
+        long key = ((long) result.ip() << 16) | (result.port() & 0xFFFFL);
+        if (!seen.add(key)) return;     // 已写过，跳过
+
         try {
-            fileWriter.write(result.ip() + ":" + result.port() + "\n");
-            pendingWrites++;
-            if (pendingWrites >= FLUSH_THRESHOLD) {
+            fileWriter.write(result.ipString());
+            fileWriter.write(':');
+            fileWriter.write(Integer.toString(result.port()));
+            fileWriter.write('\n');
+            if (++pendingWrites >= FLUSH_THRESHOLD) {
                 fileWriter.flush();
                 pendingWrites = 0;
             }
         } catch (IOException e) {
             System.err.println("写入文件失败: " + e.getMessage());
-        } finally {
-            fileLock.writeLock().unlock();
         }
     }
 
     private void flushAndClose() {
         if (fileWriter == null) return;
-
-        fileLock.writeLock().lock();
         try {
             fileWriter.flush();
             fileWriter.close();
@@ -190,45 +170,6 @@ public class ResultConsumer implements Runnable {
             System.err.println("关闭文件失败: " + e.getMessage());
         } finally {
             fileWriter = null;
-            fileLock.writeLock().unlock();
-        }
-    }
-
-
-    private void deduplicateFile() {
-        String filename = config.outputFile;
-        if (filename == null) return;
-        File file = new File(filename);
-        if (!file.exists() || file.length() == 0) return;
-
-        fileLock.writeLock().lock();
-        try {
-            List<String> lines = Files.readAllLines(Paths.get(filename), StandardCharsets.UTF_8);
-            if (lines.isEmpty()) return;
-
-            LinkedHashMap<String, String> uniqueMap = new LinkedHashMap<>();
-            for (String line : lines) {
-                line = line.trim();
-                if (line.isEmpty()) continue;
-                // 直接以完整行（即IP:PORT）为键
-                if (!uniqueMap.containsKey(line)) {
-                    uniqueMap.put(line, line);
-                }
-            }
-
-            if (uniqueMap.size() < lines.size()) {
-                try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(filename), StandardCharsets.UTF_8)) {
-                    for (String line : uniqueMap.values()) {
-                        writer.write(line);
-                        writer.newLine();
-                    }
-                }
-                System.out.println("[去重] 文件 " + filename + " 去重完成，行数从 " + lines.size() + " 减少至 " + uniqueMap.size());
-            }
-        } catch (IOException e) {
-            System.err.println("[去重] 处理文件失败: " + e.getMessage());
-        } finally {
-            fileLock.writeLock().unlock();
         }
     }
 
@@ -238,5 +179,8 @@ public class ResultConsumer implements Runnable {
         System.out.println();
         System.out.printf("扫描结束：共扫描 %d 次，发现 %d 个 Minecraft 服务器，平均速度 %.1f IP/s。%n",
                 scannedCount, foundCount, speed);
+        if (config.outputFile != null) {
+            System.out.println("结果已写入 " + config.outputFile);
+        }
     }
 }

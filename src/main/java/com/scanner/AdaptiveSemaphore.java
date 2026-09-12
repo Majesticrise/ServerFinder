@@ -64,10 +64,12 @@ public class AdaptiveSemaphore {
     public void release() {
         lock.lock();
         try {
-            if (usedPermits > 0) {
-                usedPermits--;
-                condition.signal();
+            if (usedPermits <= 0) {
+                throw new IllegalStateException(
+                        "release() called without matching acquire(): usedPermits=" + usedPermits);
             }
+            usedPermits--;
+            condition.signal();
         } finally {
             lock.unlock();
         }

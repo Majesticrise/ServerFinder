@@ -22,6 +22,13 @@ public final class MinecraftPinger {
     // 共享虚拟线程执行器，避免每次创建新对象
     private static final ExecutorService PINGER_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
+    public static boolean isMinecraftServer(int ip, int port, double timeoutSec) {
+        return isMinecraftServer(IpGenerator.ipToString(ip), port, timeoutSec, null);
+    }
+
+    public static boolean isMinecraftServer(int ip, int port, double timeoutSec, Proxy proxy) {
+        return isMinecraftServer(IpGenerator.ipToString(ip), port, timeoutSec, proxy);
+    }
     // ---------- 直连（兼容原接口） ----------
     public static boolean isMinecraftServer(String ip, int port, double timeoutSec) {
         return isMinecraftServer(ip, port, timeoutSec, null);

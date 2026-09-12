@@ -23,4 +23,27 @@ public final class PortChecker {
             return false;
         }
     }
+
+    /** int 版本：避免字符串 → InetAddress 的解析开销 */
+    public static boolean isPortOpen(int ip, int port, double timeoutSec, Proxy proxy) {
+        byte[] addr = {
+                (byte)(ip >>> 24),
+                (byte)(ip >>> 16),
+                (byte)(ip >>>  8),
+                (byte) ip
+        };
+        try (Socket sock = proxy == null ? new Socket() : new Socket(proxy)) {
+            sock.connect(new InetSocketAddress(InetAddress.getByAddress(addr), port),
+                    (int)(timeoutSec * 1000));
+            return true;
+        } catch (SocketTimeoutException e) {
+            NetworkMonitor.getInstance().recordTimeout();
+            return false;
+        } catch (BindException | NoRouteToHostException e) {
+            NetworkMonitor.getInstance().recordError();
+            return false;
+        } catch (IOException e) {
+            return false;
+        }
+    }
 }

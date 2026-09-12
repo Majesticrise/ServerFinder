@@ -98,7 +98,7 @@ public class ScanOrchestrator {
                 try {
                     if (testStop.get()) return;
                     attempts.incrementAndGet();
-                    String ip = IpGenerator.randomPublicIp();
+                    int ip = IpGenerator.randomPublicIpInt();
                     // 使用直连检测端口，记录超时或连接失败为错误
                     boolean open = PortChecker.isPortOpen(ip, config.port, config.timeout, null);
                     if (!open) {

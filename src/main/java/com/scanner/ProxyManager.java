@@ -4,11 +4,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
-import java.net.URL;
+import java.net.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
@@ -357,5 +355,19 @@ public class ProxyManager {
             proxySet.remove(key);
         }
         return proxy;
+    }
+
+    /**
+     * 轻量探活：只测 SOCKS 端口是否可连，不验证代理功能是否正常。
+     * 用于区分"代理挂了"和"目标 IP 无响应"，避免误杀好代理。
+     */
+    public static boolean isProxyAlive(Proxy proxy, int timeoutMillis) {
+        if (proxy == null || proxy.address() == null) return false;
+        try (Socket sock = new Socket()) {
+            sock.connect(proxy.address(), timeoutMillis);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 }

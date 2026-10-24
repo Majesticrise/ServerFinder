@@ -71,7 +71,12 @@ public class ScanWorker implements Runnable {
             try {
                 open = PortChecker.isPortOpen(ip, port, proxyTimeout, proxy);
             } catch (Exception e) {
-                return new ScanResult(ip, false, port);   // 代理失效，不归还
+                // 走到这里说明端口检查抛了意外异常（PortChecker 内部已吞掉 IOException）。
+                // 区分不了是代理失效还是目标无响应，先探活代理，活着就归还，避免误杀好代理。
+                if (ProxyManager.isProxyAlive(proxy, 2000)) {
+                    ProxyManager.getInstance().returnProxy(proxy);
+                }
+                return new ScanResult(ip, false, port);
             }
             boolean mc = open && MinecraftPinger.isMinecraftServer(ip, port, proxyTimeout, proxy);
             // 成功走完代理路径 → 归还

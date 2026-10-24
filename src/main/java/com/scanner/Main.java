@@ -104,8 +104,7 @@ public class Main {
                 resultQueue,
                 stopFlag,
                 orchestrator::getActiveTasks,
-                orchestrator::getProxyTaskCount,
-                orchestrator
+                orchestrator::getProxyTaskCount
         );
 
         // 注册关闭钩子，包含 NetworkMonitor 关闭
@@ -234,8 +233,8 @@ public class Main {
             try {
                 String line = console.readLine().trim().toLowerCase();
                 if (line.isEmpty()) return defaultYes;
-                if (line.matches("[yes是]")) return true;
-                if (line.matches("[no否]")) return false;
+                if (line.matches("y|yes|是")) return true;
+                if (line.matches("n|no|否")) return false;
                 System.out.println("请输入 Y/y 或 N/n。");
             } catch (Exception e) {
                 System.out.println("输入错误。");
@@ -253,7 +252,7 @@ public class Main {
                 return false;
             }
         }
-        return System.getProperty("user.name").equals("root") ||
-                System.getenv("USER").equals("root");
+        return "root".equals(System.getProperty("user.name"))
+                || "root".equals(System.getenv("USER"));
     }
 }

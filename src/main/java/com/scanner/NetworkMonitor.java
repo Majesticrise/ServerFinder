@@ -4,7 +4,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 
 public class NetworkMonitor {
@@ -20,9 +19,9 @@ public class NetworkMonitor {
     private final AtomicLongArray attemptBuckets = new AtomicLongArray(BUCKET_COUNT);
 
     private final AtomicInteger currentSecond = new AtomicInteger(0);
-    private final AtomicLong totalErrors = new AtomicLong(0);
-    private final AtomicLong totalTimeouts = new AtomicLong(0);
-    private final AtomicLong totalAttempts = new AtomicLong(0);
+
+    // 注意：不维护跨窗口的 total 计数器——桶在 shift() 时被清零重用，
+    // "快照-回减"式的 total 会在清零与新计数之间产生竞态导致虚增。
 
     // 定时任务，每秒移动窗口
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -42,21 +41,15 @@ public class NetworkMonitor {
 
     // 记录错误
     public void recordError() {
-        int idx = currentSecond.get();
-        errorBuckets.incrementAndGet(idx);
-        totalErrors.incrementAndGet();
+        errorBuckets.incrementAndGet(currentSecond.get());
     }
 
     public void recordTimeout() {
-        int idx = currentSecond.get();
-        timeoutBuckets.incrementAndGet(idx);
-        totalTimeouts.incrementAndGet();
+        timeoutBuckets.incrementAndGet(currentSecond.get());
     }
 
     public void recordAttempt() {
-        int idx = currentSecond.get();
-        attemptBuckets.incrementAndGet(idx);
-        totalAttempts.incrementAndGet();
+        attemptBuckets.incrementAndGet(currentSecond.get());
     }
 
     // 获取最近 windowSec 秒内的错误数
@@ -98,15 +91,11 @@ public class NetworkMonitor {
 
     // 每秒移动窗口：将当前秒指针向前移动，并清零旧桶（实际上我们不清零，而是覆盖）
     private void shift() {
-        // 一次性把 old 的值读出来，再清空
         // 允许瞬间"读到属于当前秒的少量计数" —— 只是小偏差，不是丢失
         int old = currentSecond.get();
-        long e = errorBuckets.getAndSet(old, 0);
-        long t = timeoutBuckets.getAndSet(old, 0);
-        long a = attemptBuckets.getAndSet(old, 0);
-        totalErrors.addAndGet(-e);
-        totalTimeouts.addAndGet(-t);
-        totalAttempts.addAndGet(-a);
+        errorBuckets.getAndSet(old, 0);
+        timeoutBuckets.getAndSet(old, 0);
+        attemptBuckets.getAndSet(old, 0);
         // 最后才推进指针
         currentSecond.set((old + 1) % BUCKET_COUNT);
     }
@@ -131,9 +120,6 @@ public class NetworkMonitor {
             timeoutBuckets.set(i, 0);
             attemptBuckets.set(i, 0);
         }
-        totalErrors.set(0);
-        totalTimeouts.set(0);
-        totalAttempts.set(0);
         currentSecond.set(0);
     }
 

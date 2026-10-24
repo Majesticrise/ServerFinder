@@ -1,9 +1,6 @@
 package com.scanner;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Set;
@@ -17,7 +14,6 @@ public class ResultConsumer implements Runnable {
     private final AtomicBoolean stopFlag;
     private final IntSupplier activeTasksSupplier;
     private final IntSupplier proxyTaskSupplier;
-    private final ScanOrchestrator orchestrator;
 
     private long scannedCount = 0;
     private long foundCount = 0;
@@ -28,6 +24,9 @@ public class ResultConsumer implements Runnable {
 
 
     private static final int FLUSH_THRESHOLD = 1;
+
+    /** seen 达到此条数后用输出文件重建，防止持续扫描下内存无限增长（约百万条 ~50MB）。 */
+    private static final int SEEN_REBUILD_THRESHOLD = 1_000_000;
 
     /** 内存去重：key = (ip << 16) | (port & 0xFFFF)。百万条 ~ 50 MB。 */
     private final Set<Long> seen = ConcurrentHashMap.newKeySet();
@@ -41,14 +40,12 @@ public class ResultConsumer implements Runnable {
             });
 
     public ResultConsumer(Config config, BlockingQueue<ScanResult> queue, AtomicBoolean stopFlag,
-                          IntSupplier activeTasksSupplier, IntSupplier proxyTaskSupplier,
-                          ScanOrchestrator orchestrator) {
+                          IntSupplier activeTasksSupplier, IntSupplier proxyTaskSupplier) {
         this.config = config;
         this.queue = queue;
         this.stopFlag = stopFlag;
         this.activeTasksSupplier = activeTasksSupplier;
         this.proxyTaskSupplier = proxyTaskSupplier;
-        this.orchestrator = orchestrator;
 
         if (config.outputFile != null) {
             try {
@@ -92,11 +89,10 @@ public class ResultConsumer implements Runnable {
 
     private void processResult(ScanResult result) {
         scannedCount++;
-        orchestrator.incrementCompleted();
+        // totalCompleted / totalFound 由 ScanOrchestrator 的 worker 回调统一计数，这里不再重复累加
 
         if (result.isMinecraft()) {
             foundCount++;
-            orchestrator.incrementFound();
             outputLine("[" + scannedCount + "] " + result.ipString() + ":" + result.port()
                     + " - 发现 Minecraft 服务器！");
             saveResult(result);
@@ -144,6 +140,9 @@ public class ResultConsumer implements Runnable {
     private void saveResult(ScanResult result) {
         if (fileWriter == null) return;
 
+        if (seen.size() >= SEEN_REBUILD_THRESHOLD) {
+            rebuildSeenFromFile();
+        }
         long key = ((long) result.ip() << 16) | (result.port() & 0xFFFFL);
         if (!seen.add(key)) return;     // 已写过，跳过
 
@@ -159,6 +158,36 @@ public class ResultConsumer implements Runnable {
         } catch (IOException e) {
             System.err.println("写入文件失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 用输出文件内容重建 seen：文件里已有的服务器仍不会重复写入。
+     * 仅 consumer 单线程调用，无需加锁。
+     */
+    private void rebuildSeenFromFile() {
+        seen.clear();
+        File f = config.outputFile == null ? null : new File(config.outputFile);
+        if (f != null && f.exists()) {
+            try (BufferedReader br = new BufferedReader(new FileReader(f))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    line = line.trim();
+                    int idx = line.lastIndexOf(':');
+                    if (idx <= 0) continue;
+                    String[] parts = line.substring(0, idx).split("\\.");
+                    if (parts.length != 4) continue;
+                    try {
+                        int ip = 0;
+                        for (String p : parts) ip = (ip << 8) | (Integer.parseInt(p) & 0xFF);
+                        int port = Integer.parseInt(line.substring(idx + 1));
+                        seen.add(((long) ip << 16) | (port & 0xFFFFL));
+                    } catch (NumberFormatException ignored) {}
+                }
+            } catch (IOException e) {
+                System.err.println("[去重] 重建去重集合失败: " + e.getMessage());
+            }
+        }
+        System.out.println("[去重] 去重集合已达上限，已按输出文件重建，当前 " + seen.size() + " 条");
     }
 
     private void flushAndClose() {

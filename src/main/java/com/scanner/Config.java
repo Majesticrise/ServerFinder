@@ -27,7 +27,6 @@ public class Config {
     public int minTestSeconds = 30;              // 最少测试时间（秒）
     public int maxTestSeconds = 120;             // 最多测试时间（秒，有发现时测满）
     public int sampleWarmupSeconds = 15;         // 切换并发后的稳定预热时间（秒）
-    public double zeroDiscoveryPenalty = 0.001; // 无发现时吞吐量惩罚系数
 
     // 锁定与验证
     public int lockedCheckInterval = 600;        // 锁定后验证间隔（秒）
@@ -38,11 +37,6 @@ public class Config {
     public double memoryDowngradeFactor = 0.8;
     public int minConcurrency = 100;                // 绝对并发下限
     public int maxConcurrency = 10240;              // 绝对并发上限（根据机器性能调整）
-
-    // ---- 文件定期去重配置 ----
-    public boolean enableFileDedup = true;
-    public int fileDedupIntervalSeconds = 600; // 10分钟
-
 
 
 }
